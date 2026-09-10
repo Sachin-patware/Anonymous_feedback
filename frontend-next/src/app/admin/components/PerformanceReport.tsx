@@ -425,7 +425,6 @@ export default function PerformanceReport() {
                                     verticalAlign="bottom"
                                     height={36}
                                     onClick={(e) => setCategoryFilter(e.value === categoryFilter ? null : (e.value ?? null))}
-                                    style={{ cursor: 'pointer' }}
                                 />
                             </PieChart>
                         </ResponsiveContainer>
