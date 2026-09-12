@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/Select';
 import { Calendar } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const RANGE_LABELS: Record<string, string> = {
     'last_6_months': 'Last 6 Months',
@@ -18,6 +19,7 @@ export interface DateRangeSelectorProps {
     allowedRanges: string[];
     startDate?: string | null;
     endDate?: string | null;
+    variant?: 'default' | 'compact';
 }
 
 export default function DateRangeSelector({
@@ -25,7 +27,8 @@ export default function DateRangeSelector({
     onChange,
     allowedRanges,
     startDate,
-    endDate
+    endDate,
+    variant = 'default'
 }: DateRangeSelectorProps) {
     const [customStart, setCustomStart] = useState(startDate || '');
     const [customEnd, setCustomEnd] = useState(endDate || '');
@@ -48,14 +51,16 @@ export default function DateRangeSelector({
     };
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                <Calendar size={14} />
-                Data Period
-            </div>
+        <div className={cn("flex", variant === 'default' ? "flex-col gap-2" : "items-center gap-2")}>
+            {variant === 'default' && (
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                    <Calendar size={14} />
+                    Data Period
+                </div>
+            )}
             
-            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                <div className="w-56">
+            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                <div className={variant === 'default' ? "w-56" : "w-48"}>
                     <Select
                         value={value}
                         onValueChange={(val) => {
@@ -106,12 +111,12 @@ export default function DateRangeSelector({
             </div>
 
             {/* Displaying actual applied dates if available */}
-            {startDate && endDate && value !== 'all_time' && (
+            {variant === 'default' && startDate && endDate && value !== 'all_time' && (
                 <div className="text-xs text-slate-500 font-medium">
                     Showing: {formatDate(startDate)} &rarr; {formatDate(endDate)}
                 </div>
             )}
-            {value === 'all_time' && (
+            {variant === 'default' && value === 'all_time' && (
                 <div className="text-xs text-slate-500 font-medium">
                     Showing: All historical data
                 </div>

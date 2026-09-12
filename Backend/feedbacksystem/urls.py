@@ -13,6 +13,7 @@ urlpatterns = [
     # Admin endpoints
     path("dashboard-admin/login/", feedback_views.admin_login, name='admin_login'),
     path("dashboard-admin/change-password/", feedback_views.admin_change_password, name='admin_change_password'),
+    path("dashboard-admin/change-first-password/", feedback_views.admin_first_login_change_password, name='admin_first_login_change_password'),
     path("dashboard-admin/tables/", feedback_views.admin_list_tables, name='admin_list_tables'),
     path("dashboard-admin/table/<str:table_name>/", feedback_views.admin_get_table_data, name='admin_get_table_data'),
     path("dashboard-admin/table/<str:table_name>/add/", feedback_views.admin_add_row, name='admin_add_row'),

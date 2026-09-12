@@ -141,6 +141,11 @@ function LoginContent() {
             localStorage.setItem("user_role", data.role);
             localStorage.setItem("user_branches", JSON.stringify(data.branches || []));
             localStorage.setItem("is_admin", "true");
+            if (data.is_first_login) {
+              localStorage.setItem("is_first_login", "true");
+            } else {
+              localStorage.removeItem("is_first_login");
+            }
           }
           showToast("Admin Login Successful! Redirecting...", "success");
           setTimeout(() => router.push('/admin'), 1500);

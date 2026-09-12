@@ -557,7 +557,7 @@ export default function PerformanceReport() {
                             Export PDF
                         </button>
                         <button
-                            onClick={fetchReports}
+                            onClick={() => fetchReports()}
                             className="p-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl hover:bg-slate-50 transition-all shadow-sm active:scale-95"
                         >
                             <RefreshCw size={18} />
