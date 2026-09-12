@@ -266,6 +266,7 @@ export default function AdminDashboard() {
     
     // Date Filtering for Tables
     const [tableDateRange, setTableDateRange] = useState('last_6_months');
+    const [tableAllowedRanges, setTableAllowedRanges] = useState<string[]>(['last_6_months']);
     const [tableCustomStart, setTableCustomStart] = useState('');
     const [tableCustomEnd, setTableCustomEnd] = useState('');
     
@@ -371,15 +372,29 @@ export default function AdminDashboard() {
                     } catch { }
                 }
                 
+                
                 if (isFirstLogin === 'true') {
                     setShowFirstLoginModal(true);
                 } else {
+                    fetchDateRanges();
                     fetchTables();
                     fetchAccessToken();
                 }
             }
         }
     }, [router]);
+
+    const fetchDateRanges = async () => {
+        try {
+            const res = await apiFetch('/dashboard-admin/date-ranges/');
+            const data = await res.json();
+            if (data.status === 'ok' && data.allowed_ranges) {
+                setTableAllowedRanges(data.allowed_ranges);
+            }
+        } catch (error) {
+            console.error("Failed to fetch date ranges:", error);
+        }
+    };
 
     const showToast = (msg: string, type: ToastType) => {
         setToast({ msg, type, visible: true });
@@ -423,6 +438,7 @@ export default function AdminDashboard() {
                 localStorage.setItem('is_first_login', 'false');
                 setShowFirstLoginModal(false);
                 showToast("Password changed successfully!", "success");
+                fetchDateRanges();
                 fetchTables();
                 fetchAccessToken();
             } else {
@@ -1110,7 +1126,7 @@ export default function AdminDashboard() {
                                                         if (start) setTableCustomStart(start);
                                                         if (end) setTableCustomEnd(end);
                                                     }}
-                                                    allowedRanges={['last_6_months', 'last_1_year', 'last_2_years', 'last_3_years', 'last_5_years', 'custom']}
+                                                    allowedRanges={tableAllowedRanges}
                                                 />
                                             </div>
                                         )}
