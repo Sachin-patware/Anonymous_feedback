@@ -44,6 +44,8 @@ const formatLabel = (label: string) => {
         .replace(/\s+/g, ' ');
 };
 
+const MASKED_PASSWORD_VALUE = '********';
+
 const getFieldIcon = (field: string) => {
     const f = field.toLowerCase();
     if (f.includes('teacher') || f.includes('faculty')) return <User size={16} className="text-indigo-500" />;
@@ -209,6 +211,8 @@ const RenderInputInner = ({
     }
 
     const isPasswordField = field.toLowerCase() === 'password';
+    const isMaskedPasswordPlaceholder = isPasswordField && value === MASKED_PASSWORD_VALUE;
+    const inputValue = isMaskedPasswordPlaceholder ? '' : (value ?? '');
 
     return (
         <div className="relative group">
@@ -217,13 +221,13 @@ const RenderInputInner = ({
             </div>
             <input
                 type={isPasswordField ? (showPassword ? 'text' : 'password') : (meta.type === 'number' ? 'number' : meta.type === 'date' ? 'date' : 'text')}
-                value={value ?? ''}
+                value={inputValue}
                 onChange={(e) => {
                     const val = e.target.value;
                     onChange(meta.type === 'number' ? (val === '' ? '' : Number(val)) : val);
                 }}
                 disabled={isPk && (meta.is_auto ?? false)}
-                placeholder={isPk && (meta.is_auto ?? false) ? '(Auto)' : meta.type === 'date' ? "YYYY-MM-DD" : `Enter ${formatLabel(field)}...`}
+                placeholder={isPasswordField ? 'Enter new password to change' : isPk && (meta.is_auto ?? false) ? '(Auto)' : meta.type === 'date' ? "YYYY-MM-DD" : `Enter ${formatLabel(field)}...`}
                 className="w-full pl-10 pr-12 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-400 transition-all font-semibold text-sm placeholder:text-slate-400 placeholder:font-medium shadow-sm hover:border-slate-300"
             />
             {isPasswordField && (
@@ -231,6 +235,8 @@ const RenderInputInner = ({
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all z-20"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -560,9 +566,13 @@ export default function AdminDashboard() {
 
         try {
             const pkValue = editingRow[tableData.pk_field];
+            const payload = { ...editingRow };
+            if (typeof payload.password === 'string' && (payload.password === MASKED_PASSWORD_VALUE || payload.password.trim() === '')) {
+                delete payload.password;
+            }
             const res = await apiFetch(`/dashboard-admin/table/${selectedTable}/${pkValue}/update/`, {
                 method: 'POST',
-                body: JSON.stringify(editingRow),
+                body: JSON.stringify(payload),
             });
             const data = await res.json();
             if (data.status === 'ok') {
