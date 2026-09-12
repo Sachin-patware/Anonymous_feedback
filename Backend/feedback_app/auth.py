@@ -70,9 +70,13 @@ def jwt_admin_required(view_func):
                 if not user.is_active:
                     return JsonResponse({'status': 'error', 'error': 'user is inactive'}, status=403)
                 
-                # Role Check: MUST BE ADMIN
+                # Check admin role
                 if user.role != 'admin':
                     return JsonResponse({'status': 'error', 'error': 'admin access required'}, status=403)
+                
+                # Enforce first login password change
+                if getattr(user, 'is_first_login', False):
+                    return JsonResponse({'status': 'error', 'error': 'first_login_required'}, status=403)
                 
                 request.user = user
                 return view_func(request, *args, **kwargs)
@@ -108,6 +112,10 @@ def jwt_hod_or_admin_required(view_func):
                 # Role Check: MUST BE ADMIN OR HOD
                 if user.role not in ['admin', 'hod']:
                     return JsonResponse({'status': 'error', 'error': 'access denied'}, status=403)
+                
+                # Enforce first login password change
+                if getattr(user, 'is_first_login', False):
+                    return JsonResponse({'status': 'error', 'error': 'first_login_required'}, status=403)
                 
                 request.user = user
                 return view_func(request, *args, **kwargs)

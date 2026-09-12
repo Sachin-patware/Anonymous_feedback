@@ -14,6 +14,7 @@ from feedback_app.models import Feedback_Response, Feedback_SubmissionLog, Acade
 from django.db.models import Avg, F, Count
 from functools import wraps
 from feedback_app.auth import generate_jwt, jwt_required, jwt_admin_required, jwt_hod_or_admin_required
+from feedback_app.date_filters import validate_date_range, apply_feedback_date_filter, get_allowed_ranges
 
 # In-memory store for student access token (resets on server restart)
 CURRENT_ACCESS_TOKEN = "AITR0827"
@@ -620,7 +621,7 @@ def admin_get_table_data(request, table_name):
         # Get query parameters for sorting and searching
         sort_by = request.GET.get('sort_by')
         order = request.GET.get('order', 'asc')
-        search_term = request.GET.get('search', '')
+        filters_str = request.GET.get('filters', '{}')
         
         # Initial queryset
         queryset = model.objects.all()
@@ -628,21 +629,92 @@ def admin_get_table_data(request, table_name):
         # Apply Role Filtering
         queryset = apply_role_filters(request.user, queryset, model)
         
-        # Apply Search
-        if search_term:
-            from django.db.models import Q
-            search_query = Q()
-            # Search across all text-based fields
-            for field in model._meta.get_fields():
-                if field.is_relation:
-                     continue
-                # Simple check for text fields (adjust based on needs)
-                internal_type = field.get_internal_type()
-                if internal_type in ['CharField', 'TextField', 'IntegerField', 'EmailField', 'FloatField', 'DecimalField']:
-                     search_query |= Q(**{f"{field.name}__icontains": search_term})
-            
-            queryset = queryset.filter(search_query)
+        # Apply Date Filtering for relevant tables
+        if request.GET.get('range'):
+            try:
+                range_key = request.GET.get('range')
+                start_date_str = request.GET.get('start_date')
+                end_date_str = request.GET.get('end_date')
+                start_date, end_date = validate_date_range(request.user, range_key, start_date_str, end_date_str)
+                
+                if model.__name__ == 'Feedback_Response':
+                    queryset = apply_feedback_date_filter(queryset, start_date, end_date)
+                elif model.__name__ == 'Feedback_SubmissionLog':
+                    if start_date and end_date:
+                        queryset = queryset.filter(Timestamp__gte=start_date, Timestamp__lte=end_date)
+            except PermissionError as e:
+                return JsonResponse({'status': 'error', 'error': str(e)}, status=403)
+            except ValueError as e:
+                return JsonResponse({'status': 'error', 'error': str(e)}, status=400)
+        
+        # Apply Search Filters
+        if filters_str:
+            import json
+            try:
+                filters_dict = json.loads(filters_str)
+                from django.db.models import Q
+                
+                for col, val in filters_dict.items():
+                    val = str(val).strip()
+                    if not val:
+                        continue
+                        
+                    if col == 'all':
+                        # Generic search across all fields
+                        search_query = Q()
+                        for field in model._meta.get_fields():
+                            if not hasattr(field, 'attname'):
+                                continue
+                            
+                            # Resolve internal type
+                            if hasattr(field, 'target_field'):
+                                internal_type = field.target_field.get_internal_type()
+                            elif hasattr(field, 'related_model') and hasattr(field.related_model, '_meta'):
+                                internal_type = field.related_model._meta.pk.get_internal_type()
+                            else:
+                                internal_type = field.get_internal_type()
+                                
+                            if internal_type in ['CharField', 'TextField', 'EmailField']:
+                                search_query |= Q(**{f"{field.attname}__icontains": val})
+                        if search_query:
+                            queryset = queryset.filter(search_query)
+                    else:
+                        # Specific column search
+                        try:
+                            field = model._meta.get_field(col)
+                            if not hasattr(field, 'attname'):
+                                continue
+                                
+                            # Resolve target internal type for relations
+                            if hasattr(field, 'target_field'):
+                                internal_type = field.target_field.get_internal_type()
+                            elif hasattr(field, 'related_model') and hasattr(field.related_model, '_meta'):
+                                internal_type = field.related_model._meta.pk.get_internal_type()
+                            else:
+                                internal_type = field.get_internal_type()
+                                
+                            lookup_field = field.attname
 
+                            if internal_type in ['CharField', 'TextField', 'EmailField']:
+                                queryset = queryset.filter(**{f"{lookup_field}__icontains": val})
+                                
+                            elif internal_type in ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField', 'PositiveBigIntegerField', 'AutoField', 'BigAutoField', 'SmallAutoField']:
+                                try:
+                                    num_val = int(float(val))
+                                    queryset = queryset.filter(**{f"{lookup_field}": num_val})
+                                except ValueError:
+                                    pass
+                                    
+                            elif internal_type in ['FloatField', 'DecimalField']:
+                                try:
+                                    num_val = float(val)
+                                    queryset = queryset.filter(**{f"{lookup_field}": num_val})
+                                except ValueError:
+                                    pass
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         # Apply Sorting
         if sort_by:
             # Validate field exists
@@ -1151,6 +1223,19 @@ def admin_teacher_report(request):
         # Apply Role Filtering
         feedback_qs = apply_role_filters(request.user, feedback_qs, Feedback_Response)
         
+        # Apply Date Filtering
+        try:
+            range_key = request.GET.get('range', 'last_6_months')
+            start_date_str = request.GET.get('start_date')
+            end_date_str = request.GET.get('end_date')
+            
+            start_date, end_date = validate_date_range(request.user, range_key, start_date_str, end_date_str)
+            feedback_qs = apply_feedback_date_filter(feedback_qs, start_date, end_date)
+        except PermissionError as e:
+            return JsonResponse({'status': 'error', 'error': str(e)}, status=403)
+        except ValueError as e:
+            return JsonResponse({'status': 'error', 'error': str(e)}, status=400)
+        
         # Group feedbacks by teacher
         teacher_groups = feedback_qs.values(
             teacher_id=F('AllocationID__TeacherID__TeacherID'),
@@ -1266,11 +1351,29 @@ def admin_teacher_report(request):
 
         return JsonResponse({
             'status': 'ok',
+            'date_range': {
+                'start_date': start_date.isoformat() if start_date else None,
+                'end_date': end_date.isoformat() if end_date else None,
+                'range_key': range_key
+            },
+            'allowed_ranges': get_allowed_ranges(getattr(request.user, 'role', 'hod')),
             'summary': summary,
             'data': report_data
         })
     except Exception as e:
         return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
+@require_GET
+@jwt_hod_or_admin_required
+def admin_date_ranges(request):
+    """Return allowed date ranges for the current user's role"""
+    user_role = getattr(request.user, 'role', 'hod')
+    allowed = get_allowed_ranges(user_role)
+    return JsonResponse({
+        'status': 'ok',
+        'allowed_ranges': allowed,
+        'default_range': 'last_6_months'
+    })
+
 @csrf_exempt
 @require_POST
 @jwt_hod_or_admin_required
@@ -1301,3 +1404,47 @@ def admin_generate_signature(request):
         })
     except Exception as e:
         return JsonResponse({"status": "error", "error": str(e)}, status=500)
+
+
+@require_POST
+def admin_first_login_change_password(request):
+    """Allows Admin/HOD to change their password on first login."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return JsonResponse({'status': 'error', 'error': 'authentication required'}, status=401)
+    
+    token_str = auth_header.split(' ')[1] if ' ' in auth_header else auth_header
+    
+    try:
+        from rest_framework_simplejwt.authentication import JWTAuthentication
+        authenticator = JWTAuthentication()
+        validated_token = authenticator.get_validated_token(token_str)
+        user = authenticator.get_user(validated_token)
+        
+        if not user or not user.is_active or user.role not in ['admin', 'hod']:
+            return JsonResponse({'status': 'error', 'error': 'invalid user'}, status=401)
+            
+        if not getattr(user, 'is_first_login', False):
+            return JsonResponse({'status': 'error', 'error': 'not first login'}, status=400)
+            
+        payload = json.loads(request.body)
+        new_password = payload.get('new_password')
+        confirm_password = payload.get('confirm_password')
+        
+        if not new_password or not confirm_password:
+            return JsonResponse({'status': 'error', 'error': 'missing passwords'}, status=400)
+            
+        if new_password != confirm_password:
+            return JsonResponse({'status': 'error', 'error': 'passwords do not match'}, status=400)
+            
+        if len(new_password) < 6:
+            return JsonResponse({'status': 'error', 'error': 'password too short (min 6 chars)'}, status=400)
+            
+        user.set_password(new_password)
+        user.is_first_login = False
+        user.save()
+        
+        return JsonResponse({'status': 'ok', 'message': 'password updated successfully'})
+        
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)}, status=400)

@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import DateRangeSelector from './DateRangeSelector';
 
 interface TeacherStat {
     teacher_id: string;
@@ -81,18 +82,38 @@ export default function PerformanceReport() {
     const [selectedTeacher, setSelectedTeacher] = useState<TeacherStat | null>(null);
     const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
 
-    useEffect(() => {
-        fetchReports();
-    }, []);
+    // Date Range State
+    const [dateRange, setDateRange] = useState('last_6_months');
+    const [customStart, setCustomStart] = useState<string>('');
+    const [customEnd, setCustomEnd] = useState<string>('');
+    const [appliedStart, setAppliedStart] = useState<string | null>(null);
+    const [appliedEnd, setAppliedEnd] = useState<string | null>(null);
+    const [allowedRanges, setAllowedRanges] = useState<string[]>(['last_6_months']);
 
-    const fetchReports = async () => {
+    useEffect(() => {
+        fetchReports(dateRange, customStart, customEnd);
+    }, [dateRange, customStart, customEnd]);
+
+    const fetchReports = async (range: string = 'last_6_months', start: string = '', end: string = '') => {
         setLoading(true);
         try {
-            const res = await apiFetch('/dashboard-admin/reports/teacher-performance/');
+            let url = `/dashboard-admin/reports/teacher-performance/?range=${range}`;
+            if (range === 'custom' && start && end) {
+                url += `&start_date=${start}&end_date=${end}`;
+            }
+            const res = await apiFetch(url);
             const result = await res.json();
             if (result.status === 'ok') {
                 setData(result.data);
                 setSummary(result.summary);
+                if (result.date_range) {
+                    setDateRange(result.date_range.range_key);
+                    setAppliedStart(result.date_range.start_date);
+                    setAppliedEnd(result.date_range.end_date);
+                }
+                if (result.allowed_ranges) {
+                    setAllowedRanges(result.allowed_ranges);
+                }
             }
         } catch (error) {
             console.error("Failed to fetch reports:", error);
@@ -141,14 +162,22 @@ export default function PerformanceReport() {
         doc.setFontSize(10);
         doc.setTextColor(100);
         doc.text(`Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, 14, 28);
+        
+        let periodText = 'Period: All Time';
+        if (dateRange !== 'all_time' && appliedStart && appliedEnd) {
+            const sd = new Date(appliedStart).toLocaleDateString();
+            const ed = new Date(appliedEnd).toLocaleDateString();
+            periodText = `Period: ${sd} to ${ed}`;
+        }
+        doc.text(periodText, 14, 34);
 
         // Final Summary
         doc.setFontSize(12);
         doc.setTextColor(0);
-        doc.text("Executive Summary", 14, 40);
+        doc.text("Executive Summary", 14, 44);
 
         autoTable(doc, {
-            startY: 45,
+            startY: 49,
             head: [['Total Faculty', 'Excellent', 'Good', 'Need Improvement']],
             body: [[
                 summary?.total_teachers || 0,
@@ -352,6 +381,26 @@ export default function PerformanceReport() {
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
+            {/* Header and Controls */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <div>
+                    <h2 className="text-xl font-black text-slate-800">Performance Overview</h2>
+                    <p className="text-sm text-slate-500 mt-1">Analytics and insights for faculty feedback</p>
+                </div>
+                
+                <DateRangeSelector 
+                    value={dateRange}
+                    onChange={(rangeKey, start, end) => {
+                        setDateRange(rangeKey);
+                        if (start) setCustomStart(start);
+                        if (end) setCustomEnd(end);
+                    }}
+                    allowedRanges={allowedRanges}
+                    startDate={appliedStart}
+                    endDate={appliedEnd}
+                />
+            </div>
+
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 {[
@@ -508,7 +557,7 @@ export default function PerformanceReport() {
                             Export PDF
                         </button>
                         <button
-                            onClick={fetchReports}
+                            onClick={() => fetchReports()}
                             className="p-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl hover:bg-slate-50 transition-all shadow-sm active:scale-95"
                         >
                             <RefreshCw size={18} />

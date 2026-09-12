@@ -8,6 +8,7 @@ import { Toast, ToastType } from '@/components/ui/Toast';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import PerformanceReport from './components/PerformanceReport';
+import DateRangeSelector from './components/DateRangeSelector';
 import {
     Select,
     SelectContent,
@@ -43,6 +44,8 @@ const formatLabel = (label: string) => {
         .trim()
         .replace(/\s+/g, ' ');
 };
+
+const MASKED_PASSWORD_VALUE = '********';
 
 const getFieldIcon = (field: string) => {
     const f = field.toLowerCase();
@@ -209,6 +212,8 @@ const RenderInputInner = ({
     }
 
     const isPasswordField = field.toLowerCase() === 'password';
+    const isMaskedPasswordPlaceholder = isPasswordField && value === MASKED_PASSWORD_VALUE;
+    const inputValue = isMaskedPasswordPlaceholder ? '' : (value ?? '');
 
     return (
         <div className="relative group">
@@ -217,13 +222,13 @@ const RenderInputInner = ({
             </div>
             <input
                 type={isPasswordField ? (showPassword ? 'text' : 'password') : (meta.type === 'number' ? 'number' : meta.type === 'date' ? 'date' : 'text')}
-                value={value ?? ''}
+                value={inputValue}
                 onChange={(e) => {
                     const val = e.target.value;
                     onChange(meta.type === 'number' ? (val === '' ? '' : Number(val)) : val);
                 }}
                 disabled={isPk && (meta.is_auto ?? false)}
-                placeholder={isPk && (meta.is_auto ?? false) ? '(Auto)' : meta.type === 'date' ? "YYYY-MM-DD" : `Enter ${formatLabel(field)}...`}
+                placeholder={isPasswordField ? 'Enter new password to change' : isPk && (meta.is_auto ?? false) ? '(Auto)' : meta.type === 'date' ? "YYYY-MM-DD" : `Enter ${formatLabel(field)}...`}
                 className="w-full pl-10 pr-12 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-400 transition-all font-semibold text-sm placeholder:text-slate-400 placeholder:font-medium shadow-sm hover:border-slate-300"
             />
             {isPasswordField && (
@@ -231,6 +236,8 @@ const RenderInputInner = ({
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all z-20"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -252,9 +259,18 @@ export default function AdminDashboard() {
     const [sortBy, setSortBy] = useState<string>('');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
     const [searchQuery, setSearchQuery] = useState('');
+    const [searchColumn, setSearchColumn] = useState('all');
     const [isPaginated, setIsPaginated] = useState(true);
     const [userRole, setUserRole] = useState<string>('admin');
     const [userBranches, setUserBranches] = useState<string[]>([]);
+    
+    // Date Filtering for Tables
+    const [tableDateRange, setTableDateRange] = useState('last_6_months');
+    const [tableCustomStart, setTableCustomStart] = useState('');
+    const [tableCustomEnd, setTableCustomEnd] = useState('');
+    
+    // Multiple Column Filters
+    const [tableFilters, setTableFilters] = useState<Record<string, string>>({});
 
 
     // Horizontal scroll shadow indicators
@@ -328,32 +344,48 @@ export default function AdminDashboard() {
     };
 
     const [toast, setToast] = useState<{ msg: string; type: ToastType; visible: boolean }>({
-        msg: '',
-        type: 'info',
-        visible: false,
+        msg: '', type: 'info', visible: false
     });
+
+    // First Login Modal States
+    const [showFirstLoginModal, setShowFirstLoginModal] = useState(false);
+    const [firstLoginPassword, setFirstLoginPassword] = useState('');
+    const [firstLoginConfirmPassword, setFirstLoginConfirmPassword] = useState('');
+    const [firstLoginSubmitting, setFirstLoginSubmitting] = useState(false);
+    const [showFirstLoginPassword, setShowFirstLoginPassword] = useState(false);
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
+            const token = localStorage.getItem('access_token');
             const role = localStorage.getItem('user_role');
-            const branchesRaw = localStorage.getItem('user_branches');
-            if (role) {
-                setUserRole(role);
-                if (branchesRaw) {
-                    try { setUserBranches(JSON.parse(branchesRaw)); } catch(e) { setUserBranches([]); }
+            const branches = localStorage.getItem('user_branches');
+            const isFirstLogin = localStorage.getItem('is_first_login');
+
+            if (!token) {
+                router.push('/');
+            } else {
+                setUserRole(role || 'admin');
+                if (branches) {
+                    try {
+                        setUserBranches(JSON.parse(branches));
+                    } catch { }
+                }
+                
+                if (isFirstLogin === 'true') {
+                    setShowFirstLoginModal(true);
+                } else {
+                    fetchTables();
+                    fetchAccessToken();
                 }
             }
         }
-    }, []);
+    }, [router]);
 
     const showToast = (msg: string, type: ToastType) => {
         setToast({ msg, type, visible: true });
     };
 
-    useEffect(() => {
-        fetchTables();
-        fetchAccessToken();
-    }, []);
+
 
     const fetchAccessToken = async () => {
         try {
@@ -364,6 +396,42 @@ export default function AdminDashboard() {
             }
         } catch (error) {
             console.error("Failed to fetch access token:", error);
+        }
+    };
+
+    const handleFirstLoginChangePassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (firstLoginPassword !== firstLoginConfirmPassword) {
+            showToast("Passwords do not match.", "error");
+            return;
+        }
+        if (firstLoginPassword.length < 6) {
+            showToast("Password must be at least 6 characters.", "error");
+            return;
+        }
+        setFirstLoginSubmitting(true);
+        try {
+            const res = await apiFetch('/dashboard-admin/change-first-password/', {
+                method: 'POST',
+                body: JSON.stringify({
+                    new_password: firstLoginPassword,
+                    confirm_password: firstLoginConfirmPassword
+                })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                localStorage.setItem('is_first_login', 'false');
+                setShowFirstLoginModal(false);
+                showToast("Password changed successfully!", "success");
+                fetchTables();
+                fetchAccessToken();
+            } else {
+                showToast(data.error || "Failed to change password", "error");
+            }
+        } catch (error) {
+            showToast("Network error. Try again.", "error");
+        } finally {
+            setFirstLoginSubmitting(false);
         }
     };
 
@@ -443,7 +511,7 @@ export default function AdminDashboard() {
     };
 
 
-    // Debounce search query
+    // Debounce search query & table filters
     useEffect(() => {
         const timer = setTimeout(() => {
             if (selectedTable) {
@@ -451,13 +519,23 @@ export default function AdminDashboard() {
             }
         }, 500);
         return () => clearTimeout(timer);
-    }, [searchQuery]);
+    }, [searchQuery, tableFilters]);
 
+    useEffect(() => {
+        if (selectedTable) {
+            // Reset filters when switching tables
+            setSearchQuery('');
+            setSearchColumn('all');
+            setTableFilters({});
+            fetchTableData(1);
+        }
+    }, [selectedTable]);
+    
     useEffect(() => {
         if (selectedTable) {
             fetchTableData(currentPage);
         }
-    }, [selectedTable, currentPage, pageSize, sortBy, sortOrder, isPaginated]);
+    }, [currentPage, pageSize, sortBy, sortOrder, isPaginated, tableDateRange, tableCustomStart, tableCustomEnd]);
 
     const fetchTables = async () => {
         try {
@@ -488,8 +566,21 @@ export default function AdminDashboard() {
                 url += `&sort_by=${sortBy}&order=${sortOrder}`;
             }
 
+            const currentFilters: Record<string, string> = { ...tableFilters };
             if (searchQuery) {
-                url += `&search=${encodeURIComponent(searchQuery)}`;
+                currentFilters[searchColumn || 'all'] = searchQuery;
+            }
+            
+            if (Object.keys(currentFilters).length > 0) {
+                url += `&filters=${encodeURIComponent(JSON.stringify(currentFilters))}`;
+            }
+            
+            // Only add date filter for relevant tables
+            if (selectedTable.toLowerCase() === 'feedback_response' || selectedTable.toLowerCase() === 'feedback_submissionlog') {
+                url += `&range=${tableDateRange}`;
+                if (tableDateRange === 'custom' && tableCustomStart && tableCustomEnd) {
+                    url += `&start_date=${tableCustomStart}&end_date=${tableCustomEnd}`;
+                }
             }
 
             const res = await apiFetch(url.replace(API_BASE_URL || '', ''));
@@ -555,14 +646,39 @@ export default function AdminDashboard() {
         }
     };
 
+    const handleToggleActive = async (row: any) => {
+        if (!tableData) return;
+        const pkValue = row[tableData.pk_field];
+        const payload = { ...row, is_active: !row.is_active };
+        try {
+            const res = await apiFetch(`/dashboard-admin/table/${selectedTable}/${pkValue}/update/`, {
+                method: 'POST',
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                showToast(`Status updated successfully`, 'success');
+                fetchTableData(currentPage);
+            } else {
+                showToast(data.error || 'Failed to update status', 'error');
+            }
+        } catch (error) {
+            showToast('Error updating status', 'error');
+        }
+    };
+
     const handleSaveEdit = async () => {
         if (!editingRow || !tableData) return;
 
         try {
             const pkValue = editingRow[tableData.pk_field];
+            const payload = { ...editingRow };
+            if (typeof payload.password === 'string' && (payload.password === MASKED_PASSWORD_VALUE || payload.password.trim() === '')) {
+                delete payload.password;
+            }
             const res = await apiFetch(`/dashboard-admin/table/${selectedTable}/${pkValue}/update/`, {
                 method: 'POST',
-                body: JSON.stringify(editingRow),
+                body: JSON.stringify(payload),
             });
             const data = await res.json();
             if (data.status === 'ok') {
@@ -603,6 +719,12 @@ export default function AdminDashboard() {
         t.table_name.toLowerCase().includes(filterTables.toLowerCase())
     );
 
+    const isStaffUser = tableData?.model_name?.toLowerCase() === 'staffuser' || selectedTable.toLowerCase().includes('staffuser');
+    const staffUserVisible = ['id', 'username', 'role', 'department', 'branches', 'is_active'];
+    const visibleFields = tableData ? tableData.fields.filter(field => 
+        !isStaffUser || staffUserVisible.includes(field.toLowerCase())
+    ) : [];
+
     return (
         <div className="min-h-screen text-slate-900 font-sans">
             <Toast
@@ -611,6 +733,80 @@ export default function AdminDashboard() {
                 isVisible={toast.visible}
                 onClose={() => setToast(prev => ({ ...prev, visible: false }))}
             />
+
+            {/* First Login Password Change Modal */}
+            {showFirstLoginModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-white/20 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-violet-500" />
+                        
+                        <div className="flex flex-col items-center mb-8">
+                            <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4">
+                                <Lock size={32} className="text-indigo-600" />
+                            </div>
+                            <h2 className="text-2xl font-black text-slate-900 text-center">Action Required</h2>
+                            <p className="text-sm text-slate-500 text-center mt-2">
+                                For security reasons, you must change your default password before accessing the dashboard.
+                            </p>
+                        </div>
+                        
+                        <form onSubmit={handleFirstLoginChangePassword} className="space-y-5">
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-bold text-slate-700">New Password</label>
+                                <div className="relative">
+                                    <input
+                                        type={showFirstLoginPassword ? 'text' : 'password'}
+                                        value={firstLoginPassword}
+                                        onChange={(e) => setFirstLoginPassword(e.target.value)}
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium pr-12"
+                                        placeholder="••••••••"
+                                        required
+                                        minLength={6}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowFirstLoginPassword(!showFirstLoginPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                                    >
+                                        {showFirstLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-bold text-slate-700">Confirm Password</label>
+                                <div className="relative">
+                                    <input
+                                        type={showFirstLoginPassword ? 'text' : 'password'}
+                                        value={firstLoginConfirmPassword}
+                                        onChange={(e) => setFirstLoginConfirmPassword(e.target.value)}
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium pr-12"
+                                        placeholder="••••••••"
+                                        required
+                                        minLength={6}
+                                    />
+                                </div>
+                            </div>
+                            
+                            <button
+                                type="submit"
+                                disabled={firstLoginSubmitting}
+                                className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
+                            >
+                                {firstLoginSubmitting ? (
+                                    <Loader2 size={20} className="animate-spin" />
+                                ) : (
+                                    <>
+                                        <ShieldCheck size={20} />
+                                        Update Password & Continue
+                                    </>
+                                )}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
 
             {/* Top Navigation / Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -900,18 +1096,24 @@ export default function AdminDashboard() {
                                                 </button>
                                             </div>
                                         )}
-                                        <div className="h-8 w-[1px] bg-slate-300 mx-1 hidden md:block"></div>
-                                        <div className="relative w-full md:w-64">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                                            <input
-                                                type="text"
-                                                placeholder={`Search in ${tableData?.model_name}...`}
-                                                value={searchQuery}
-                                                onChange={(e) => setSearchQuery(e.target.value)}
-                                                className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all shadow-sm"
-                                            />
-                                        </div>
-
+                                        
+                                        {(selectedTable.toLowerCase() === 'feedback_response' || selectedTable.toLowerCase() === 'feedback_submissionlog') && (
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider hidden xl:block">
+                                                    Period:
+                                                </div>
+                                                <DateRangeSelector 
+                                                    value={tableDateRange}
+                                                    variant="compact"
+                                                    onChange={(rangeKey, start, end) => {
+                                                        setTableDateRange(rangeKey);
+                                                        if (start) setTableCustomStart(start);
+                                                        if (end) setTableCustomEnd(end);
+                                                    }}
+                                                    allowedRanges={['last_6_months', 'last_1_year', 'last_2_years', 'last_3_years', 'last_5_years', 'custom']}
+                                                />
+                                            </div>
+                                        )}
                                         <div className="h-8 w-[1px] bg-slate-300 mx-1 hidden md:block"></div>
 
                                         <div className="flex bg-white border border-slate-300 rounded-lg p-1 shadow-sm">
@@ -936,7 +1138,7 @@ export default function AdminDashboard() {
                                         </div>
                                     </div>
                                 </div>
-
+                                
                                 {/* Table Data */}
                                 <div className="flex-1 w-full relative">
                                     {/* Left fade — hidden columns behind */}
@@ -964,7 +1166,7 @@ export default function AdminDashboard() {
                                                 <thead>
                                                     <tr className="bg-gradient-to-r from-slate-100 to-slate-50 border-b-2 border-slate-200 sticky top-0 z-10">
                                                         <th className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 w-12 text-center">#</th>
-                                                        {tableData.fields.map((field) => (
+                                                        {visibleFields.map((field) => (
                                                             <th
                                                                 key={field}
                                                                 onClick={() => handleSort(field)}
@@ -991,6 +1193,45 @@ export default function AdminDashboard() {
                                                             </th>
                                                         )}
                                                     </tr>
+                                                    
+                                                    {/* Filter Row inside Header */}
+                                                    <tr className="bg-slate-50 border-b-2 border-slate-200 sticky top-12 z-10 shadow-sm">
+                                                        <td className="px-3 py-2 text-center bg-slate-50">
+                                                            <button
+                                                                onClick={() => setTableFilters({})}
+                                                                title="Clear all filters"
+                                                                className="p-1.5 hover:bg-slate-200 rounded-md text-slate-400 hover:text-slate-700 transition-colors"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        </td>
+                                                        {visibleFields.map((field) => {
+                                                            const isStaffUser = tableData?.model_name?.toLowerCase() === 'staffuser' || selectedTable.toLowerCase().includes('staffuser');
+                                                            const staffUserAllowed = ['id', 'username', 'role', 'department'];
+                                                            
+                                                            if (isStaffUser && !staffUserAllowed.includes(field.toLowerCase())) {
+                                                                return <td key={field} className="px-2 py-2 bg-slate-50"></td>;
+                                                            }
+                                                            
+                                                            return (
+                                                                <td key={field} className="px-2 py-2 bg-slate-50">
+                                                                    <div className="relative">
+                                                                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                                                                        <input
+                                                                            type="text"
+                                                                            value={tableFilters[field] || ''}
+                                                                            onChange={(e) => setTableFilters(prev => ({ ...prev, [field]: e.target.value }))}
+                                                                            placeholder="Filter..."
+                                                                            className="w-full pl-6 pr-2 py-1 bg-white border border-slate-200 rounded text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-sm min-w-[80px]"
+                                                                        />
+                                                                    </div>
+                                                                </td>
+                                                            );
+                                                        })}
+                                                        {!READ_ONLY_TABLES.some(t => t.toLowerCase() === selectedTable.toLowerCase()) && (
+                                                            <td className="px-2 py-2 bg-slate-50 sticky right-0 z-20"></td>
+                                                        )}
+                                                    </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
                                                     {tableData.data.map((row, idx) => (
@@ -1000,14 +1241,32 @@ export default function AdminDashboard() {
                                                                     {(isPaginated ? (currentPage - 1) * pageSize : 0) + idx + 1}
                                                                 </span>
                                                             </td>
-                                                            {tableData.fields.map((field) => {
+                                                            {visibleFields.map((field) => {
                                                                 const meta = tableData.field_meta?.[field];
                                                                 const value = row[field];
                                                                 const isRatingField = field.toLowerCase().includes('rating') || field.toLowerCase().includes('q1') || field.toLowerCase().includes('q2') || field.toLowerCase().includes('q3') || field.toLowerCase().includes('q4') || field.toLowerCase().includes('q5') || field.toLowerCase().includes('q6') || field.toLowerCase().includes('q7') || field.toLowerCase().includes('q8') || field.toLowerCase().includes('q9') || field.toLowerCase().includes('q10');
                                                                 const numVal = Number(value);
 
                                                                 let content;
-                                                                if (meta?.type === 'boolean') {
+                                                                if (isStaffUser && field.toLowerCase() === 'is_active') {
+                                                                    const canToggle = userRole === 'admin';
+                                                                    content = (
+                                                                        <button 
+                                                                            onClick={(e) => { e.stopPropagation(); if(canToggle) handleToggleActive(row); }}
+                                                                            disabled={!canToggle}
+                                                                            className={cn(
+                                                                                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
+                                                                                value ? "bg-emerald-500" : "bg-slate-300",
+                                                                                canToggle ? "cursor-pointer hover:opacity-90" : "cursor-not-allowed opacity-70"
+                                                                            )}
+                                                                        >
+                                                                            <span className={cn(
+                                                                                "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                                                                                value ? "translate-x-4" : "translate-x-0.5"
+                                                                            )} />
+                                                                        </button>
+                                                                    );
+                                                                } else if (meta?.type === 'boolean') {
                                                                     content = value ? (
                                                                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
