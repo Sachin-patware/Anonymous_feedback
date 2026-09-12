@@ -1145,8 +1145,8 @@ def admin_teacher_report(request):
     7. Minimum response count gate
     """
     try:
-        # Base queryset for feedback responses
-        feedback_qs = Feedback_Response.objects.all()
+        # Base queryset for feedback responses (current semester only, archived data excluded)
+        feedback_qs = Feedback_Response.objects.filter(is_archived=False)
         
         # Apply Role Filtering
         feedback_qs = apply_role_filters(request.user, feedback_qs, Feedback_Response)
