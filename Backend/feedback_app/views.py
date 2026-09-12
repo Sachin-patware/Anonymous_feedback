@@ -14,6 +14,7 @@ from feedback_app.models import Feedback_Response, Feedback_SubmissionLog, Acade
 from django.db.models import Avg, F, Count
 from functools import wraps
 from feedback_app.auth import generate_jwt, jwt_required, jwt_admin_required, jwt_hod_or_admin_required
+from feedback_app.date_filters import validate_date_range, apply_feedback_date_filter, get_allowed_ranges
 
 # In-memory store for student access token (resets on server restart)
 CURRENT_ACCESS_TOKEN = "AITR0827"
@@ -628,6 +629,24 @@ def admin_get_table_data(request, table_name):
         # Apply Role Filtering
         queryset = apply_role_filters(request.user, queryset, model)
         
+        # Apply Date Filtering for relevant tables
+        if request.GET.get('range'):
+            try:
+                range_key = request.GET.get('range')
+                start_date_str = request.GET.get('start_date')
+                end_date_str = request.GET.get('end_date')
+                start_date, end_date = validate_date_range(request.user, range_key, start_date_str, end_date_str)
+                
+                if model.__name__ == 'Feedback_Response':
+                    queryset = apply_feedback_date_filter(queryset, start_date, end_date)
+                elif model.__name__ == 'Feedback_SubmissionLog':
+                    if start_date and end_date:
+                        queryset = queryset.filter(Timestamp__gte=start_date, Timestamp__lte=end_date)
+            except PermissionError as e:
+                return JsonResponse({'status': 'error', 'error': str(e)}, status=403)
+            except ValueError as e:
+                return JsonResponse({'status': 'error', 'error': str(e)}, status=400)
+        
         # Apply Search
         if search_term:
             from django.db.models import Q
@@ -1151,6 +1170,19 @@ def admin_teacher_report(request):
         # Apply Role Filtering
         feedback_qs = apply_role_filters(request.user, feedback_qs, Feedback_Response)
         
+        # Apply Date Filtering
+        try:
+            range_key = request.GET.get('range', 'last_6_months')
+            start_date_str = request.GET.get('start_date')
+            end_date_str = request.GET.get('end_date')
+            
+            start_date, end_date = validate_date_range(request.user, range_key, start_date_str, end_date_str)
+            feedback_qs = apply_feedback_date_filter(feedback_qs, start_date, end_date)
+        except PermissionError as e:
+            return JsonResponse({'status': 'error', 'error': str(e)}, status=403)
+        except ValueError as e:
+            return JsonResponse({'status': 'error', 'error': str(e)}, status=400)
+        
         # Group feedbacks by teacher
         teacher_groups = feedback_qs.values(
             teacher_id=F('AllocationID__TeacherID__TeacherID'),
@@ -1266,11 +1298,29 @@ def admin_teacher_report(request):
 
         return JsonResponse({
             'status': 'ok',
+            'date_range': {
+                'start_date': start_date.isoformat() if start_date else None,
+                'end_date': end_date.isoformat() if end_date else None,
+                'range_key': range_key
+            },
+            'allowed_ranges': get_allowed_ranges(getattr(request.user, 'role', 'hod')),
             'summary': summary,
             'data': report_data
         })
     except Exception as e:
         return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
+@require_GET
+@jwt_hod_or_admin_required
+def admin_date_ranges(request):
+    """Return allowed date ranges for the current user's role"""
+    user_role = getattr(request.user, 'role', 'hod')
+    allowed = get_allowed_ranges(user_role)
+    return JsonResponse({
+        'status': 'ok',
+        'allowed_ranges': allowed,
+        'default_range': 'last_6_months'
+    })
+
 @csrf_exempt
 @require_POST
 @jwt_hod_or_admin_required

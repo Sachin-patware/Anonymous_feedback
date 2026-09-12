@@ -8,6 +8,7 @@ import { Toast, ToastType } from '@/components/ui/Toast';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import PerformanceReport from './components/PerformanceReport';
+import DateRangeSelector from './components/DateRangeSelector';
 import {
     Select,
     SelectContent,
@@ -261,6 +262,11 @@ export default function AdminDashboard() {
     const [isPaginated, setIsPaginated] = useState(true);
     const [userRole, setUserRole] = useState<string>('admin');
     const [userBranches, setUserBranches] = useState<string[]>([]);
+    
+    // Date Filtering for Tables
+    const [tableDateRange, setTableDateRange] = useState('all_time');
+    const [tableCustomStart, setTableCustomStart] = useState('');
+    const [tableCustomEnd, setTableCustomEnd] = useState('');
 
 
     // Horizontal scroll shadow indicators
@@ -463,7 +469,7 @@ export default function AdminDashboard() {
         if (selectedTable) {
             fetchTableData(currentPage);
         }
-    }, [selectedTable, currentPage, pageSize, sortBy, sortOrder, isPaginated]);
+    }, [selectedTable, currentPage, pageSize, sortBy, sortOrder, isPaginated, tableDateRange, tableCustomStart, tableCustomEnd]);
 
     const fetchTables = async () => {
         try {
@@ -496,6 +502,14 @@ export default function AdminDashboard() {
 
             if (searchQuery) {
                 url += `&search=${encodeURIComponent(searchQuery)}`;
+            }
+            
+            // Only add date filter for relevant tables
+            if (selectedTable.toLowerCase() === 'feedback_response' || selectedTable.toLowerCase() === 'feedback_submissionlog') {
+                url += `&range=${tableDateRange}`;
+                if (tableDateRange === 'custom' && tableCustomStart && tableCustomEnd) {
+                    url += `&start_date=${tableCustomStart}&end_date=${tableCustomEnd}`;
+                }
             }
 
             const res = await apiFetch(url.replace(API_BASE_URL || '', ''));
@@ -908,6 +922,20 @@ export default function AdminDashboard() {
                                                     <Plus size={18} />
                                                     Add Record
                                                 </button>
+                                            </div>
+                                        )}
+                                        
+                                        {(selectedTable.toLowerCase() === 'feedback_response' || selectedTable.toLowerCase() === 'feedback_submissionlog') && (
+                                            <div className="flex items-center">
+                                                <DateRangeSelector 
+                                                    value={tableDateRange}
+                                                    onChange={(rangeKey, start, end) => {
+                                                        setTableDateRange(rangeKey);
+                                                        if (start) setTableCustomStart(start);
+                                                        if (end) setTableCustomEnd(end);
+                                                    }}
+                                                    allowedRanges={userRole === 'admin' ? ['last_6_months', 'last_1_year', 'last_2_years', 'last_3_years', 'last_5_years', 'all_time', 'custom'] : ['last_6_months', 'last_1_year', 'last_2_years', 'last_3_years', 'last_5_years', 'custom']}
+                                                />
                                             </div>
                                         )}
                                         <div className="h-8 w-[1px] bg-slate-300 mx-1 hidden md:block"></div>
