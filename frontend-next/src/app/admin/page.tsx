@@ -1177,7 +1177,7 @@ export default function AdminDashboard() {
                                             </div>
                                         )}
 
-                                        {tableData && tableData.data.length > 0 ? (
+                                        {tableData ? (
                                             <table className="w-full min-w-max text-left">
                                                 <thead>
                                                     <tr className="bg-gradient-to-r from-slate-100 to-slate-50 border-b-2 border-slate-200 sticky top-0 z-10">
@@ -1250,7 +1250,8 @@ export default function AdminDashboard() {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
-                                                    {tableData.data.map((row, idx) => (
+                                                    {tableData.data.length > 0 ? (
+                                                        tableData.data.map((row, idx) => (
                                                         <tr key={idx} className="hover:bg-blue-50/40 transition-colors duration-100 group">
                                                             <td className="px-5 py-3.5 text-center">
                                                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-slate-100 text-[10px] font-black text-slate-400">
@@ -1351,18 +1352,23 @@ export default function AdminDashboard() {
                                                                 )}
                                                             </td>
                                                         </tr>
-                                                    ))}
+                                                        ))
+                                                    ) : !loading && (
+                                                        <tr>
+                                                            <td colSpan={visibleFields.length + (!READ_ONLY_TABLES.some(t => t.toLowerCase() === selectedTable.toLowerCase()) ? 2 : 1)} className="px-5 py-10">
+                                                                <div className="flex flex-col items-center justify-center h-64">
+                                                                    <div className="h-16 w-16 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-4">
+                                                                        <Database size={28} className="text-slate-300" />
+                                                                    </div>
+                                                                    <p className="font-bold text-slate-400">No records found</p>
+                                                                    <p className="text-xs text-slate-300 mt-1">Try adjusting your search or filters</p>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
                                                 </tbody>
                                             </table>
-                                        ) : !loading && (
-                                            <div className="flex flex-col items-center justify-center h-64">
-                                                <div className="h-16 w-16 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-4">
-                                                    <Database size={28} className="text-slate-300" />
-                                                </div>
-                                                <p className="font-bold text-slate-400">No records found</p>
-                                                <p className="text-xs text-slate-300 mt-1">Try adjusting your search or filters</p>
-                                            </div>
-                                        )}
+                                        ) : null}
                                     </div>
                                 </div>
 
