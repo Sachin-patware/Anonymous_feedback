@@ -17,6 +17,10 @@ class Academic_Allocation(models.Model):
     Target_Year = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
     Target_Semester = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
     Target_Section = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+    AcademicSession = models.CharField(
+        max_length=20,
+        db_column="AcademicSession"
+    )
 
     class Meta:
         db_table = "academic_allocation"
