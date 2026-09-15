@@ -19,6 +19,101 @@ import { Toast, ToastType } from '@/components/ui/Toast';
 import { cn } from '@/lib/utils';
 import { Suspense } from 'react';
 
+// ─── AcademicSession helpers ──────────────────────────────────────────────────
+const LOGIN_MONTHS_FULL = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+const LOGIN_MONTH_ABBR: Record<string, string> = {
+  January:'Jan', February:'Feb', March:'Mar', April:'Apr',
+  May:'May', June:'Jun', July:'Jul', August:'Aug',
+  September:'Sep', October:'Oct', November:'Nov', December:'Dec',
+};
+const LOGIN_FULL_FROM_ABBR: Record<string, string> = Object.fromEntries(
+  Object.entries(LOGIN_MONTH_ABBR).map(([k,v]) => [v,k])
+);
+function loginBuildSession(sf: string, ef: string, yr: string) {
+  if (!sf || !ef || !yr) return '';
+  return `${LOGIN_MONTH_ABBR[sf]}-${LOGIN_MONTH_ABBR[ef]} ${yr}`;
+}
+function loginParseSession(raw: string) {
+  const m = raw.match(/^([A-Z][a-z]{2})-([A-Z][a-z]{2}) (\d{4})$/);
+  if (!m) return { sf: 'June', ef: 'December', yr: String(new Date().getFullYear()) };
+  return { sf: LOGIN_FULL_FROM_ABBR[m[1]] || 'June', ef: LOGIN_FULL_FROM_ABBR[m[2]] || 'December', yr: m[3] };
+}
+function loginYearOptions() {
+  const now = new Date().getFullYear();
+  return Array.from({ length: 8 }, (_, i) => String(now - 2 + i));
+}
+
+/** Compact 3-part AcademicSession selector for the student login form */
+function LoginSessionSelector({
+  value,
+  onChange,
+  locked,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  locked: boolean;
+}) {
+  const init = loginParseSession(value);
+  const [sf, setSf] = React.useState(init.sf);
+  const [ef, setEf] = React.useState(init.ef);
+  const [yr, setYr] = React.useState(init.yr);
+  const [err, setErr] = React.useState('');
+
+  React.useEffect(() => {
+    const p = loginParseSession(value);
+    setSf(p.sf); setEf(p.ef); setYr(p.yr);
+  }, [value]);
+
+  const commit = (a: string, b: string, c: string) => {
+    const si = LOGIN_MONTHS_FULL.indexOf(a);
+    const ei = LOGIN_MONTHS_FULL.indexOf(b);
+    if (si >= ei) { setErr('End month must be after the start month.'); return; }
+    setErr('');
+    onChange(loginBuildSession(a, b, c));
+  };
+
+  const preview = loginBuildSession(sf, ef, yr);
+  const valid   = LOGIN_MONTHS_FULL.indexOf(sf) < LOGIN_MONTHS_FULL.indexOf(ef);
+  const triggerCls = "bg-white/5 border-white/20 text-white focus:ring-blue-500/50 text-sm h-10";
+  const years = loginYearOptions();
+
+  return (
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1.5">
+        <Select value={sf} onValueChange={v => { setSf(v); commit(v, ef, yr); }} disabled={locked}>
+          <SelectTrigger className={triggerCls}><SelectValue placeholder="Start" /></SelectTrigger>
+          <SelectContent>
+            {LOGIN_MONTHS_FULL.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <span className="text-slate-400 text-xs font-bold text-center">–</span>
+        <Select value={ef} onValueChange={v => { setEf(v); commit(sf, v, yr); }} disabled={locked}>
+          <SelectTrigger className={triggerCls}><SelectValue placeholder="End" /></SelectTrigger>
+          <SelectContent>
+            {LOGIN_MONTHS_FULL.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <span className="text-slate-400 text-xs"></span>
+        <Select value={yr} onValueChange={v => { setYr(v); commit(sf, ef, v); }} disabled={locked}>
+          <SelectTrigger className={triggerCls}><SelectValue placeholder="Year" /></SelectTrigger>
+          <SelectContent>
+            {years.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      {err && <p className="text-xs font-semibold text-red-400">⚠ {err}</p>}
+      {preview && valid && (
+        <p className="text-xs font-bold text-blue-300 mt-1">
+          Session: <span className="text-white">{preview}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 function LoginContent() {
   const router = useRouter();
   const [role, setRole] = useState<'student' | 'admin'>('student');
@@ -186,7 +281,7 @@ function LoginContent() {
       const data = await res.json();
       if (data.status === "ok") {
         if (typeof window !== 'undefined') {
-          localStorage.setItem("access_token", data.access);
+          localStorage.setItem("student_token", data.access);
           localStorage.setItem("enrollment", data.EnrollmentNo);
           localStorage.setItem("fullName", data.FullName);
           localStorage.setItem("session", data.session);
@@ -460,18 +555,12 @@ function LoginContent() {
                       {role === 'student' ? (
                         <>
                           <div className="space-y-2 mb-4">
-                            <label className="text-sm font-semibold text-slate-300 ml-1">Academic Session</label>
-                            <Select value={session} onValueChange={setSession} disabled={!!sessionFromUrl}>
-                              <SelectTrigger className="bg-white/5 border-white/12 text-white focus:ring-blue-500/50">
-                                <SelectValue placeholder="Select Session" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Jun-Dec 2026">Jun-Dec 2026</SelectItem>
-                                <SelectItem value="Jan-May 2027">Jan-May 2027</SelectItem>
-                                <SelectItem value="Jun-Dec 2027">Jun-Dec 2027</SelectItem>
-                                <SelectItem value="Jan-May 2028">Jan-May 2028</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            <label className="text-sm font-semibold text-slate-300 ml-1">Feedback Conducting Session</label>
+                            <LoginSessionSelector
+                              value={session}
+                              onChange={setSession}
+                              locked={!!sessionFromUrl}
+                            />
                           </div>
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">

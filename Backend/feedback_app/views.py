@@ -812,9 +812,9 @@ def admin_get_table_data(request, table_name):
             elif 'section' in field_name_lower:
                 meta['type'] = 'select'
                 meta['choices'] = [{'value': i, 'label': f"Section {i}"} for i in range(1, 11)]
-            elif 'academicsession' in field_name_lower or 'session' in field_name_lower:
-                meta['type'] = 'select'
-                meta['choices'] = [{'value': s, 'label': s} for s in ["Jun-Dec 2026", "Jan-May 2027", "Jun-Dec 2027", "Jan-May 2028"]]
+            elif 'academicsession' in field_name_lower or field_name_lower == 'academicsession':
+                meta['type'] = 'academicsession'
+                meta['choices'] = []
             
             # Visibility/Form overrides for user models
             if is_user_model and f.name in ['last_login', 'is_first_login', 'is_active', 'is_superuser', 'is_staff', 'date_joined']:
