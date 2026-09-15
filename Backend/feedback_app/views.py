@@ -19,7 +19,7 @@ from feedback_app.date_filters import validate_date_range, apply_feedback_date_f
 # In-memory store for student access token (resets on server restart)
 CURRENT_ACCESS_TOKEN = "AITR0827"
 
-# LEGACY DECORATORS REMOVED (Replaced by feedback_app.auth)
+
 
 def apply_role_filters(user, queryset, model):
     """
@@ -32,7 +32,7 @@ def apply_role_filters(user, queryset, model):
     if user.role == 'hod':
         model_name = model.__name__
         
-        # HODs cannot see the User table (StaffUser)
+      
         if model_name == 'StaffUser':
             return queryset.none()
             
@@ -46,7 +46,7 @@ def apply_role_filters(user, queryset, model):
             return queryset.filter(AllocationID__TargetBranch__in=user.branches)
             
         elif model_name == 'Faculty_Teacher':
-            # Teachers that are allocated to the HOD's branches
+            
             from .models import Academic_Allocation
             teacher_ids = Academic_Allocation.objects.filter(
                 TargetBranch__in=user.branches
@@ -630,6 +630,7 @@ def admin_get_table_data(request, table_name):
         sort_by = request.GET.get('sort_by')
         order = request.GET.get('order', 'asc')
         filters_str = request.GET.get('filters', '{}')
+        q_param = request.GET.get('q', '').strip()
         
         # Initial queryset
         queryset = model.objects.all()
@@ -656,10 +657,19 @@ def admin_get_table_data(request, table_name):
                 return JsonResponse({'status': 'error', 'error': str(e)}, status=400)
         
         # Apply Search Filters
+        filters_dict = {}
         if filters_str:
             import json
             try:
                 filters_dict = json.loads(filters_str)
+            except Exception:
+                filters_dict = {}
+                
+        if q_param and 'all' not in filters_dict:
+            filters_dict['all'] = q_param
+
+        if filters_dict:
+            try:
                 from django.db.models import Q
                 
                 for col, val in filters_dict.items():
@@ -793,11 +803,21 @@ def admin_get_table_data(request, table_name):
                 meta['type'] = 'select' 
                 meta['choices'] = [{'value': c[0], 'label': str(c[1])} for c in f.choices]
             
-            # Special multi-select for branches
-            # Type discovery based on name
+            # Foreign key relations
+            if f.is_relation and f.many_to_one and f.related_model:
+                meta['is_foreign_key'] = True
+                meta['related_model'] = f.related_model.__name__
+                meta['related_table'] = f.related_model._meta.db_table
+                meta['related_pk'] = f.related_model._meta.pk.name
+
+            # Special field type discovery based on name
             field_name_lower = f.name.lower()
             
-            if field_name_lower in ['branches', 'branchs']:
+            if field_name_lower in ['teacherid', 'teacher_id']:
+                meta['type'] = 'teacher_search'
+            elif field_name_lower in ['subjectcode', 'subject_code']:
+                meta['type'] = 'subject_search'
+            elif field_name_lower in ['branches', 'branchs']:
                 meta['type'] = 'multi-select'
                 meta['choices'] = [{'value': b, 'label': b} for b in ['CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI']]
             elif 'branch' in field_name_lower:

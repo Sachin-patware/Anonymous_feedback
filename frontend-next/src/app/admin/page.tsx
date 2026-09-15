@@ -184,6 +184,275 @@ const AcademicSessionInput = ({
     );
 };
 
+// ─── ForeignKeySearchSelect ───────────────────────────────────────────────────
+const ForeignKeySearchSelect = ({
+    field,
+    value,
+    onChange,
+    targetTable,
+    placeholder,
+}: {
+    field: string;
+    value: string;
+    onChange: (val: string) => void;
+    targetTable: 'faculty_teacher' | 'academic_subject';
+    placeholder?: string;
+}) => {
+    const isTeacher = targetTable === 'faculty_teacher';
+    const [query, setQuery] = useState('');
+    const [isOpen, setIsOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [results, setResults] = useState<any[]>([]);
+    const [selectedDetail, setSelectedDetail] = useState<any | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Fetch initial details if value is present
+    useEffect(() => {
+        if (!value) {
+            setSelectedDetail(null);
+            return;
+        }
+
+        const currentCode = isTeacher ? selectedDetail?.TeacherID : selectedDetail?.SubjectCode;
+        if (currentCode === value) return;
+
+        let isMounted = true;
+        const pkField = isTeacher ? 'TeacherID' : 'SubjectCode';
+        apiFetch(`/dashboard-admin/table/${targetTable}/?q=${encodeURIComponent(value)}&page_size=5`)
+            .then(res => res.json())
+            .then(data => {
+                if (!isMounted) return;
+                if (data.status === 'ok' && Array.isArray(data.data)) {
+                    const match = data.data.find((item: any) => String(item[pkField]).toUpperCase() === String(value).toUpperCase());
+                    if (match) {
+                        setSelectedDetail(match);
+                    }
+                }
+            })
+            .catch(() => {});
+
+        return () => {
+            isMounted = false;
+        };
+    }, [value, targetTable, isTeacher]);
+
+    // Handle search-as-you-type with debouncing
+    const fetchResults = useCallback((searchTerm: string) => {
+        setLoading(true);
+        const searchParam = searchTerm.trim();
+        const url = searchParam
+            ? `/dashboard-admin/table/${targetTable}/?q=${encodeURIComponent(searchParam)}&page_size=15`
+            : `/dashboard-admin/table/${targetTable}/?page_size=15`;
+
+        apiFetch(url)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok' && Array.isArray(data.data)) {
+                    setResults(data.data);
+                } else {
+                    setResults([]);
+                }
+            })
+            .catch(() => {
+                setResults([]);
+            })
+            .finally(() => {
+                setLoading(false);
+            });
+    }, [targetTable]);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        setQuery(val);
+        setIsOpen(true);
+
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        debounceTimerRef.current = setTimeout(() => {
+            fetchResults(val);
+        }, 250);
+    };
+
+    const handleFocus = () => {
+        setIsOpen(true);
+        if (results.length === 0) {
+            fetchResults(query);
+        }
+    };
+
+    const handleSelect = (item: any) => {
+        const selectedCode = isTeacher ? item.TeacherID : item.SubjectCode;
+        setSelectedDetail(item);
+        onChange(selectedCode);
+        setQuery('');
+        setIsOpen(false);
+    };
+
+    const handleClear = () => {
+        setSelectedDetail(null);
+        onChange('');
+        setQuery('');
+        setIsOpen(true);
+        fetchResults('');
+    };
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        };
+    }, []);
+
+    // ── When a value is selected ──────────────────────────────────────────
+    if (value) {
+        return (
+            <div className="relative group">
+                <div className="w-full flex items-center justify-between p-2.5 px-3.5 bg-gradient-to-r from-indigo-50/70 to-slate-50 border border-indigo-200/80 rounded-xl shadow-sm transition-all hover:border-indigo-300">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                        <div className={cn(
+                            "p-2 rounded-lg flex-shrink-0",
+                            isTeacher ? "bg-indigo-100 text-indigo-700" : "bg-violet-100 text-violet-700"
+                        )}>
+                            {isTeacher ? <User size={18} /> : <BookText size={18} />}
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <span className={cn(
+                                    "font-mono font-black text-xs px-2 py-0.5 rounded-md",
+                                    isTeacher ? "bg-indigo-600 text-white" : "bg-violet-600 text-white"
+                                )}>
+                                    {value}
+                                </span>
+                                {selectedDetail && (
+                                    <span className="text-xs font-bold text-slate-800 truncate">
+                                        {isTeacher ? selectedDetail.FullName : selectedDetail.SubjectName}
+                                    </span>
+                                )}
+                            </div>
+                            {selectedDetail && (
+                                <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                                    {isTeacher
+                                        ? (selectedDetail.Designation || 'Faculty')
+                                        : `${selectedDetail.Branch || ''}${selectedDetail.Semester ? ` • Sem ${selectedDetail.Semester}` : ''}`}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleClear}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all ml-2 flex-shrink-0"
+                        title="Change selection"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ── When searching (no value selected) ─────────────────────────────────
+    return (
+        <div ref={containerRef} className="relative">
+            <div className="relative group">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors group-focus-within:text-indigo-600 z-10 text-slate-400">
+                    {loading ? (
+                        <Loader2 size={16} className="animate-spin text-indigo-500" />
+                    ) : isTeacher ? (
+                        <User size={16} />
+                    ) : (
+                        <BookText size={16} />
+                    )}
+                </div>
+                <input
+                    type="text"
+                    value={query}
+                    onChange={handleInputChange}
+                    onFocus={handleFocus}
+                    placeholder={placeholder || (isTeacher ? "Search Teacher ID or Name..." : "Search Subject Code or Name...")}
+                    className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-semibold text-sm placeholder:text-slate-400 placeholder:font-normal shadow-sm hover:border-slate-300"
+                />
+                {query && (
+                    <button
+                        type="button"
+                        onClick={() => { setQuery(''); fetchResults(''); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-md"
+                    >
+                        <X size={14} />
+                    </button>
+                )}
+            </div>
+
+            {/* Dropdown Results */}
+            {isOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto custom-scrollbar divide-y divide-slate-100">
+                    {loading && results.length === 0 ? (
+                        <div className="p-4 flex items-center justify-center gap-2 text-xs font-semibold text-slate-500">
+                            <Loader2 size={16} className="animate-spin text-indigo-600" />
+                            <span>Searching {isTeacher ? 'teachers' : 'subjects'}...</span>
+                        </div>
+                    ) : results.length > 0 ? (
+                        results.map((item) => {
+                            const code = isTeacher ? item.TeacherID : item.SubjectCode;
+                            const title = isTeacher ? item.FullName : item.SubjectName;
+                            const subtitle = isTeacher
+                                ? item.Designation
+                                : `${item.Branch || ''}${item.Semester ? ` • Semester ${item.Semester}` : ''}`;
+
+                            return (
+                                <button
+                                    key={code}
+                                    type="button"
+                                    onClick={() => handleSelect(item)}
+                                    className="w-full px-3.5 py-2.5 text-left hover:bg-indigo-50/70 transition-colors flex items-center justify-between group cursor-pointer"
+                                >
+                                    <div className="min-w-0 pr-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn(
+                                                "font-mono font-extrabold text-xs px-2 py-0.5 rounded border transition-colors",
+                                                isTeacher 
+                                                    ? "bg-indigo-50 border-indigo-200 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600" 
+                                                    : "bg-violet-50 border-violet-200 text-violet-700 group-hover:bg-violet-600 group-hover:text-white group-hover:border-violet-600"
+                                            )}>
+                                                {code}
+                                            </span>
+                                            <span className="text-xs font-bold text-slate-800 truncate">
+                                                {title}
+                                            </span>
+                                        </div>
+                                        {subtitle && (
+                                            <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5 pl-0.5">
+                                                {subtitle}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-400 group-hover:text-indigo-600 uppercase tracking-wider flex-shrink-0">
+                                        Select
+                                    </span>
+                                </button>
+                            );
+                        })
+                    ) : (
+                        <div className="p-4 text-center text-xs font-semibold text-slate-400">
+                            {query ? (isTeacher ? 'No teachers found' : 'No subjects found') : (isTeacher ? 'Type to search teachers...' : 'Type to search subjects...')}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const getFieldIcon = (field: string) => {
     const f = field.toLowerCase();
     if (f.includes('teacher') || f.includes('faculty')) return <User size={16} className="text-indigo-500" />;
@@ -219,6 +488,32 @@ const RenderInputInner = ({
     // ── AcademicSession: dynamic 3-part selector ─────────────────────────────
     if (meta.type === 'academicsession') {
         return <AcademicSessionInput value={value ?? ''} onChange={onChange} />;
+    }
+
+    // ── Teacher Autocomplete Search (Foreign Key) ─────────────────────────────
+    if (!isPk && (meta.type === 'teacher_search' || field.toLowerCase() === 'teacherid' || field.toLowerCase() === 'teacher_id')) {
+        return (
+            <ForeignKeySearchSelect
+                field={field}
+                value={String(value ?? '')}
+                onChange={onChange}
+                targetTable="faculty_teacher"
+                placeholder="Search Teacher ID or Name..."
+            />
+        );
+    }
+
+    // ── Subject Autocomplete Search (Foreign Key) ─────────────────────────────
+    if (!isPk && (meta.type === 'subject_search' || field.toLowerCase() === 'subjectcode' || field.toLowerCase() === 'subject_code')) {
+        return (
+            <ForeignKeySearchSelect
+                field={field}
+                value={String(value ?? '')}
+                onChange={onChange}
+                targetTable="academic_subject"
+                placeholder="Search Subject Code or Name..."
+            />
+        );
     }
 
     // Smart Year/Semester Filtering

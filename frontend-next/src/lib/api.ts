@@ -15,7 +15,19 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
     // Add JWT token if it exists in localStorage
     if (typeof window !== 'undefined') {
-        const token = localStorage.getItem('access_token');
+        let token: string | null = null;
+        if (path.startsWith('/dashboard-admin/')) {
+            token = localStorage.getItem('access_token');
+        } else if (
+            path.startsWith('/my-teachers') ||
+            path.startsWith('/submit-feedback') ||
+            path.startsWith('/my-feedbacks')
+        ) {
+            token = localStorage.getItem('student_token') || localStorage.getItem('access_token');
+        } else {
+            token = localStorage.getItem('student_token') || localStorage.getItem('access_token');
+        }
+
         if (token) {
             defaultHeaders['Authorization'] = `Bearer ${token}`;
         }

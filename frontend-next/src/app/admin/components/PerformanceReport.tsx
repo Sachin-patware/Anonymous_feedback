@@ -10,7 +10,7 @@ import { FEEDBACK_QUESTIONS } from '@/app/dashboard/feedbackQuestions';
 import {
     TrendingUp, Users, Award, AlertCircle,
     Search, Download, Filter, RefreshCw, X, ChevronRight,
-    Star, MessageSquare, BookOpen, Clock, Target, FileDown, Check
+    Star, MessageSquare, BookOpen, Clock, Target, FileDown, FileText, Check
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -367,6 +367,208 @@ export default function PerformanceReport() {
         doc.save(`Teacher_Report_${teacher.full_name.replace(/\s+/g, '_')}.pdf`);
     };
 
+    const handleExportDOC = () => {
+        let periodText = 'All Time';
+        if (dateRange !== 'all_time' && appliedStart && appliedEnd) {
+            const sd = new Date(appliedStart).toLocaleDateString();
+            const ed = new Date(appliedEnd).toLocaleDateString();
+            periodText = `${sd} to ${ed}`;
+        }
+
+        const tableRows = filteredData.map(t => {
+            const categoryColor = t.category === 'Excellent' ? '#059669' :
+                t.category === 'Good' ? '#2563eb' :
+                t.category === 'Need Improvement' ? '#dc2626' : '#9333ea';
+
+            return `
+                <tr>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-family: monospace; font-size: 13px; color: #4338ca; font-weight: bold;">${t.teacher_id}</td>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: bold; font-size: 13px; color: #1e293b;">${t.full_name}</td>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; text-align: center; font-weight: bold; font-size: 13px; color: ${categoryColor};">${t.average_rating}</td>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; text-align: center; font-size: 13px;">${t.response_count}</td>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; text-align: center; font-weight: bold; font-size: 12px; color: ${categoryColor};">${t.category}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head>
+                <meta charset="utf-8">
+                <title>Faculty Performance Report</title>
+                <style>
+                    body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; margin: 30px; color: #1e293b; }
+                    h1 { color: #4338ca; font-size: 24px; margin-bottom: 4px; }
+                    h2 { color: #1e293b; font-size: 18px; margin-top: 24px; margin-bottom: 12px; }
+                    .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; }
+                    .grid-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; }
+                    .grid-table th { background-color: #4338ca; color: #ffffff; padding: 10px 14px; border: 1px solid #4338ca; font-size: 13px; text-align: left; }
+                    .grid-table td { padding: 10px 14px; border: 1px solid #e2e8f0; }
+                </style>
+            </head>
+            <body>
+                <h1>Faculty Performance Report</h1>
+                <div class="subtitle">Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()} | Period: ${periodText}</div>
+                
+                <h2>Executive Summary</h2>
+                <table class="grid-table">
+                    <thead>
+                        <tr>
+                            <th>Total Faculty</th>
+                            <th style="text-align: center;">Excellent</th>
+                            <th style="text-align: center;">Good</th>
+                            <th style="text-align: center;">Need Improvement</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="font-size: 16px; font-weight: bold; color: #4338ca;">${summary?.total_teachers || 0}</td>
+                            <td style="text-align: center; font-weight: bold; color: #059669; font-size: 14px;">${summary?.excellent || 0}</td>
+                            <td style="text-align: center; font-weight: bold; color: #2563eb; font-size: 14px;">${summary?.good || 0}</td>
+                            <td style="text-align: center; font-weight: bold; color: #dc2626; font-size: 14px;">${summary?.needs_improvement || 0}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2>Detailed Scorecard</h2>
+                <table class="grid-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 15%;">Teacher ID</th>
+                            <th style="width: 35%;">Full Name</th>
+                            <th style="width: 15%; text-align: center;">Rating</th>
+                            <th style="width: 15%; text-align: center;">Responses</th>
+                            <th style="width: 20%; text-align: center;">Category</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            </body>
+            </html>
+        `;
+
+        const blob = new Blob(['\ufeff' + htmlContent], {
+            type: 'application/msword'
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `Faculty_Performance_Report_${new Date().toISOString().split('T')[0]}.doc`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleExportTeacherDOC = (teacher: TeacherStat) => {
+        let periodText = 'All Time';
+        if (dateRange !== 'all_time' && appliedStart && appliedEnd) {
+            const sd = new Date(appliedStart).toLocaleDateString();
+            const ed = new Date(appliedEnd).toLocaleDateString();
+            periodText = `${sd} to ${ed}`;
+        }
+
+        const parametersRows = Object.entries(teacher.question_stats).map(([key, value]) => {
+            const globalStat = summary?.global_question_stats?.[key];
+            const threshold = globalStat ? globalStat.threshold : 0;
+            const isPass = value >= threshold;
+            const verdictText = isPass ? 'Satisfactory' : 'Needs Attention';
+            const verdictColor = isPass ? '#059669' : '#dc2626';
+
+            return `
+                <tr>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-size: 13px; color: #1e293b;">${QUESTION_LABELS[key] || key}</td>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; text-align: center; font-weight: bold; font-size: 13px; color: #4338ca;">${value} / 5.0</td>
+                    <td style="padding: 10px 14px; border: 1px solid #e2e8f0; text-align: center; font-weight: bold; font-size: 12px; color: ${verdictColor};">${verdictText}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const htmlContent = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head>
+                <meta charset="utf-8">
+                <title>Teacher Performance Report - ${teacher.full_name}</title>
+                <style>
+                    body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; margin: 30px; color: #1e293b; }
+                    h1 { color: #4338ca; font-size: 24px; margin-bottom: 4px; }
+                    h2 { color: #1e293b; font-size: 18px; margin-top: 24px; margin-bottom: 12px; }
+                    .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; }
+                    .info-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px; }
+                    .grid-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; }
+                    .grid-table th { background-color: #4338ca; color: #ffffff; padding: 10px 14px; border: 1px solid #4338ca; font-size: 13px; text-align: left; }
+                    .grid-table td { padding: 10px 14px; border: 1px solid #e2e8f0; }
+                </style>
+            </head>
+            <body>
+                <h1>Teacher Performance Report</h1>
+                <div class="subtitle">Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()} | Period: ${periodText}</div>
+                
+                <div class="info-box">
+                    <table style="width: 100%; border: none;">
+                        <tr>
+                            <td style="border: none; width: 50%;">
+                                <div style="font-size: 20px; font-weight: bold; color: #0f172a;">${teacher.full_name}</div>
+                                <div style="font-size: 13px; color: #64748b; font-family: monospace;">Teacher ID: ${teacher.teacher_id}</div>
+                            </td>
+                            <td style="border: none; width: 50%; text-align: right;">
+                                <div style="font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: bold;">Category</div>
+                                <div style="font-size: 15px; font-weight: bold; color: #4338ca;">${teacher.category}</div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h2>Performance Summary</h2>
+                <table class="grid-table">
+                    <thead>
+                        <tr>
+                            <th>Overall Rating</th>
+                            <th style="text-align: center;">Total Feedbacks</th>
+                            <th style="text-align: center;">Performance Category</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="font-size: 16px; font-weight: bold; color: #4338ca;">${teacher.average_rating} / 5.0</td>
+                            <td style="text-align: center; font-weight: bold; font-size: 14px;">${teacher.response_count}</td>
+                            <td style="text-align: center; font-weight: bold; font-size: 13px;">${teacher.category}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2>Performance Breakdown (10 Evaluation Parameters)</h2>
+                <table class="grid-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 60%;">Evaluation Parameter</th>
+                            <th style="width: 20%; text-align: center;">Score (Out of 5)</th>
+                            <th style="width: 20%; text-align: center;">Verdict</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${parametersRows}
+                    </tbody>
+                </table>
+            </body>
+            </html>
+        `;
+
+        const blob = new Blob(['\ufeff' + htmlContent], {
+            type: 'application/msword'
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `Teacher_Report_${teacher.full_name.replace(/\s+/g, '_')}.doc`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center py-24 space-y-4">
@@ -557,6 +759,13 @@ export default function PerformanceReport() {
                             Export PDF
                         </button>
                         <button
+                            onClick={handleExportDOC}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-200 font-bold text-sm active:scale-95"
+                        >
+                            <FileText size={18} />
+                            Export DOC
+                        </button>
+                        <button
                             onClick={() => fetchReports()}
                             className="p-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl hover:bg-slate-50 transition-all shadow-sm active:scale-95"
                         >
@@ -721,10 +930,17 @@ export default function PerformanceReport() {
                                     <div className="flex items-center gap-2">
                                         <button
                                             onClick={() => handleExportTeacherPDF(selectedTeacher)}
-                                            className="flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-all font-bold text-xs active:scale-95 border border-indigo-100"
+                                            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-all font-bold text-xs active:scale-95 border border-indigo-100"
                                         >
-                                            <FileDown size={16} />
+                                            <FileDown size={15} />
                                             Export PDF
+                                        </button>
+                                        <button
+                                            onClick={() => handleExportTeacherDOC(selectedTeacher)}
+                                            className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-all font-bold text-xs active:scale-95 border border-blue-100"
+                                        >
+                                            <FileText size={15} />
+                                            Export DOC
                                         </button>
                                         <button
                                             onClick={() => setSelectedTeacher(null)}
