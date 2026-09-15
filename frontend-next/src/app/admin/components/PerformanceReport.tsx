@@ -839,7 +839,7 @@ export default function PerformanceReport() {
                                     <td className="px-6 py-4">
                                         <button
                                             onClick={() => setSelectedTeacher(teacher)}
-                                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider opacity-60 group-hover:opacity-100 transition-all duration-200 flex items-center gap-1 hover:gap-2"
+                                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wider opacity-100 md:opacity-60 md:group-hover:opacity-100 transition-all duration-200 flex items-center gap-1 hover:gap-2"
                                         >
                                             View Profile
                                             <ChevronRight size={14} />

@@ -768,6 +768,7 @@ export default function AdminDashboard() {
     const [genSem, setGenSem] = useState('');
     const [genSection, setGenSection] = useState('');
     const [advancedLinkUrl, setAdvancedLinkUrl] = useState('');
+    const [isGeneratingLink, setIsGeneratingLink] = useState(false);
     const qrRef = useRef<SVGSVGElement>(null);
 
     const YEAR_SEMESTER_MAP: Record<string, number[]> = {
@@ -949,6 +950,8 @@ export default function AdminDashboard() {
     };
 
     const copyAdvancedLink = async () => {
+        if (isGeneratingLink) return;
+
         if (!genSession || !genBranch || !genYear || !genSem || !genSection) {
             showToast("Please select all class fields first", "error");
             return;
@@ -958,6 +961,7 @@ export default function AdminDashboard() {
             return;
         }
 
+        setIsGeneratingLink(true);
         try {
             const res = await apiFetch('/dashboard-admin/generate-signature/', {
                 method: 'POST',
@@ -989,6 +993,8 @@ export default function AdminDashboard() {
             }
         } catch (error) {
             showToast("Server error generating signature", "error");
+        } finally {
+            setIsGeneratingLink(false);
         }
     };
 
@@ -1491,10 +1497,20 @@ export default function AdminDashboard() {
 
                             <button
                                 onClick={copyAdvancedLink}
-                                className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold uppercase tracking-wider rounded-xl hover:from-violet-700 hover:to-indigo-700 shadow-lg shadow-violet-200/50 active:scale-[0.98] transition-all group"
+                                disabled={isGeneratingLink}
+                                className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold uppercase tracking-wider rounded-xl hover:from-violet-700 hover:to-indigo-700 shadow-lg shadow-violet-200/50 active:scale-[0.98] transition-all group disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer"
                             >
-                                <Copy size={18} className="group-hover:scale-110 transition-transform" />
-                                Generate Link &amp; QR Code
+                                {isGeneratingLink ? (
+                                    <>
+                                        <Loader2 size={18} className="animate-spin" />
+                                        Generating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Copy size={18} className="group-hover:scale-110 transition-transform" />
+                                        Generate Link &amp; QR Code
+                                    </>
+                                )}
                             </button>
 
                             {/* ── QR Code Panel ── */}
@@ -1926,13 +1942,13 @@ export default function AdminDashboard() {
                                                             })}
                                                             <td className="px-4 py-3 text-right sticky right-0 bg-white group-hover:bg-blue-50/40 shadow-[-12px_0_20px_-10px_rgba(0,0,0,0.05)] align-middle z-10 transition-colors duration-100">
                                                                 {!READ_ONLY_TABLES.some(t => t.toLowerCase() === selectedTable.toLowerCase()) && (
-                                                                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <div className="flex items-center justify-end gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                                                         <button
                                                                             onClick={() => {
                                                                                 setEditingRow(row);
                                                                                 setNewRowData({ ...row });
                                                                             }}
-                                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                                                                            className="p-1.5 sm:p-2 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 bg-slate-100 md:bg-transparent transition-all"
                                                                             title="Edit"
                                                                         >
                                                                             <Edit size={16} />
@@ -1940,7 +1956,7 @@ export default function AdminDashboard() {
                                                                         {!isSelfRow(row) && (
                                                                             <button
                                                                                 onClick={() => setDeleteConfirm(row)}
-                                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                                                                                className="p-1.5 sm:p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 bg-slate-100 md:bg-transparent transition-all"
                                                                                 title="Delete"
                                                                             >
                                                                                 <Trash2 size={16} />
