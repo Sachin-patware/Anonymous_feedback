@@ -315,6 +315,7 @@ export default function AdminDashboard() {
     const [isUpdatingToken, setIsUpdatingToken] = useState(false);
 
     // Advanced Link Gen
+    const [genSession, setGenSession] = useState('Jun-Dec 2026');
     const [genBranch, setGenBranch] = useState('');
     const [genYear, setGenYear] = useState('');
     const [genSem, setGenSem] = useState('');
@@ -490,7 +491,7 @@ export default function AdminDashboard() {
     };
 
     const copyAdvancedLink = async () => {
-        if (!genBranch || !genYear || !genSem || !genSection) {
+        if (!genSession || !genBranch || !genYear || !genSem || !genSection) {
             showToast("Please select all class fields first", "error");
             return;
         }
@@ -499,6 +500,7 @@ export default function AdminDashboard() {
             const res = await apiFetch('/dashboard-admin/generate-signature/', {
                 method: 'POST',
                 body: JSON.stringify({
+                    session: genSession,
                     branch: genBranch,
                     year: genYear,
                     semester: genSem,
@@ -510,6 +512,7 @@ export default function AdminDashboard() {
             if (data.status === 'ok') {
                 const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
                 let link = `${baseUrl}/?token=${studentToken}`;
+                link += `&session=${genSession}`;
                 link += `&branch=${genBranch}`;
                 link += `&year=${genYear}`;
                 link += `&semester=${genSem}`;
@@ -941,6 +944,20 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                         <div className="p-6 space-y-5">
+                            <div className="space-y-1.5 mb-4">
+                                <span className="text-[11px] font-black text-slate-400 ml-1 uppercase">Academic Session</span>
+                                <Select value={genSession} onValueChange={setGenSession}>
+                                    <SelectTrigger className="h-11 text-sm font-bold bg-slate-50 border-slate-200 text-slate-600 rounded-xl">
+                                        <SelectValue placeholder="Session" />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-white border-slate-200 shadow-xl">
+                                        <SelectItem value="Jun-Dec 2026">Jun-Dec 2026</SelectItem>
+                                        <SelectItem value="Jan-May 2027">Jan-May 2027</SelectItem>
+                                        <SelectItem value="Jun-Dec 2027">Jun-Dec 2027</SelectItem>
+                                        <SelectItem value="Jan-May 2028">Jan-May 2028</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <span className="text-[11px] font-black text-slate-400 ml-1 uppercase">Branch</span>
@@ -950,7 +967,7 @@ export default function AdminDashboard() {
                                         </SelectTrigger>
                                         <SelectContent className="bg-white border-slate-200 shadow-xl">
                                             {[
-                                                'CS', 'IT', 'DS', 'AIML', 'CY', 'CSIT', 'EC', 'CIVIL', 'MECHANICAL'
+                                                'CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI'
                                             ].filter(b => userRole === 'admin' || userBranches.includes(b)).map(b => (
                                                 <SelectItem key={b} value={b}>{b}</SelectItem>
                                             ))}
@@ -995,7 +1012,7 @@ export default function AdminDashboard() {
                                             <SelectValue placeholder="Section" />
                                         </SelectTrigger>
                                         <SelectContent className="bg-white border-slate-200 shadow-xl">
-                                            {[1, 2, 3, 4, 5].map(s => (
+                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => (
                                                 <SelectItem key={s} value={s.toString()}>Sec {s}</SelectItem>
                                             ))}
                                         </SelectContent>

@@ -28,6 +28,7 @@ function LoginContent() {
   const [showInstructions, setShowInstructions] = useState(false);
 
   // Student Fields
+  const [session, setSession] = useState('Jun-Dec 2026');
   const [branch, setBranch] = useState('');
   const [year, setYear] = useState('');
   const [semester, setSemester] = useState('');
@@ -69,6 +70,7 @@ function LoginContent() {
   const tokenFromUrl = searchParams.get('token') || '';
 
   // URL Pre-set Parameters
+  const sessionFromUrl = searchParams.get('session');
   const branchFromUrl = searchParams.get('branch');
   const yearFromUrl = searchParams.get('year');
   const semesterFromUrl = searchParams.get('semester');
@@ -81,10 +83,11 @@ function LoginContent() {
     setMounted(true);
 
     if (tokenFromUrl || searchParams.get('admin') === 'true') {
-       setShowLogin(true);
+      setShowLogin(true);
     }
 
     // Auto-fill from URL if present
+    if (sessionFromUrl) setSession(sessionFromUrl);
     if (branchFromUrl) setBranch(branchFromUrl);
     if (yearFromUrl) setYear(yearFromUrl);
     if (semesterFromUrl) setSemester(semesterFromUrl);
@@ -161,7 +164,7 @@ function LoginContent() {
     }
 
     // Student login
-    if (!branch || !year || !semester || !section) {
+    if (!session || !branch || !year || !semester || !section) {
       showToast("Please select all class details.", "error");
       return;
     }
@@ -170,6 +173,7 @@ function LoginContent() {
       const res = await apiFetch('/login/', {
         method: "POST",
         body: JSON.stringify({
+          session,
           branch,
           year: parseInt(year),
           semester: parseInt(semester),
@@ -185,6 +189,7 @@ function LoginContent() {
           localStorage.setItem("access_token", data.access);
           localStorage.setItem("enrollment", data.EnrollmentNo);
           localStorage.setItem("fullName", data.FullName);
+          localStorage.setItem("session", data.session);
           localStorage.setItem("branch", data.branch);
           localStorage.setItem("year", data.year.toString());
           localStorage.setItem("semester", data.semester.toString());
@@ -232,69 +237,69 @@ function LoginContent() {
             className="flex-1 flex flex-col items-center justify-center relative z-10 px-6 py-20 text-center w-full max-w-7xl mx-auto min-h-screen"
           >
             <div className="bg-white/10 p-3 rounded-[2rem] backdrop-blur-md border border-white/20 shadow-2xl mb-12">
-               <Image src="/images/AITR-logo.jpg" alt="AITR Logo" width={180} height={50} className="object-contain rounded-2xl bg-white p-2" />
+              <Image src="/images/AITR-logo.jpg" alt="AITR Logo" width={180} height={50} className="object-contain rounded-2xl bg-white p-2" />
             </div>
 
             <h1 className="text-6xl md:text-8xl font-black mb-8 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 drop-shadow-lg leading-tight">
-               Elevate the Future of Learning.
+              Elevate the Future of Learning.
             </h1>
-            
+
             <p className="text-xl md:text-2xl text-slate-300 max-w-3xl mb-14 leading-relaxed font-medium">
-               The centralized **AITR Feedback Portal** empowers students to provide secure, anonymous insights to actively shape academic excellence across all departments.
+              The centralized **AITR Feedback Portal** empowers students to provide secure, anonymous insights to actively shape academic excellence across all departments.
             </p>
 
             <div className="flex flex-col items-center gap-6 mb-24 z-20 w-full max-w-2xl mx-auto">
-               <div className="flex flex-col sm:flex-row gap-6 w-full">
-                 <button
-                   onClick={() => { setRole('student'); setShowLogin(true); }}
-                   className="flex-1 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-2xl font-black text-lg shadow-[0_0_40px_-10px_rgba(79,70,229,0.7)] hover:shadow-[0_0_60px_-10px_rgba(79,70,229,0.9)] transition-all duration-300 transform hover:-translate-y-2 flex items-center justify-center gap-3 border border-indigo-400/30 w-full"
-                 >
-                   <GraduationCap size={24} />
-                   Give Feedback / Login
-                   <ArrowRight size={20} className="animate-pulse" />
-                 </button>
-                 
-                 <button
-                   onClick={() => { setRole('admin'); setShowLogin(true); }}
-                   className="flex-1 py-5 bg-white/5 hover:bg-white/10 rounded-2xl font-bold text-lg backdrop-blur-md border border-white/10 transition-all duration-300 transform hover:-translate-y-2 flex items-center justify-center gap-3 text-slate-300 hover:text-white w-full"
-                 >
-                   <ShieldCheck size={24} />
-                   Admin Portal
-                 </button>
-               </div>
-               <button
-                 onClick={() => setShowInstructions(true)}
-                 className="px-8 py-4 w-full sm:w-auto bg-white/5 hover:bg-slate-800/50 rounded-2xl font-bold text-lg backdrop-blur-md border border-white/10 transition-all duration-300 flex items-center justify-center gap-3 text-slate-400 hover:text-white"
-               >
-                 <BookOpen size={22} className="text-indigo-400" />
-                 Instructions for Feedback
-               </button>
+              <div className="flex flex-col sm:flex-row gap-6 w-full">
+                <button
+                  onClick={() => { setRole('student'); setShowLogin(true); }}
+                  className="flex-1 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-2xl font-black text-lg shadow-[0_0_40px_-10px_rgba(79,70,229,0.7)] hover:shadow-[0_0_60px_-10px_rgba(79,70,229,0.9)] transition-all duration-300 transform hover:-translate-y-2 flex items-center justify-center gap-3 border border-indigo-400/30 w-full"
+                >
+                  <GraduationCap size={24} />
+                  Give Feedback / Login
+                  <ArrowRight size={20} className="animate-pulse" />
+                </button>
+
+                <button
+                  onClick={() => { setRole('admin'); setShowLogin(true); }}
+                  className="flex-1 py-5 bg-white/5 hover:bg-white/10 rounded-2xl font-bold text-lg backdrop-blur-md border border-white/10 transition-all duration-300 transform hover:-translate-y-2 flex items-center justify-center gap-3 text-slate-300 hover:text-white w-full"
+                >
+                  <ShieldCheck size={24} />
+                  Admin Portal
+                </button>
+              </div>
+              <button
+                onClick={() => setShowInstructions(true)}
+                className="px-8 py-4 w-full sm:w-auto bg-white/5 hover:bg-slate-800/50 rounded-2xl font-bold text-lg backdrop-blur-md border border-white/10 transition-all duration-300 flex items-center justify-center gap-3 text-slate-400 hover:text-white"
+              >
+                <BookOpen size={22} className="text-indigo-400" />
+                Instructions for Feedback
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl mb-10">
-               {[
-                 { title: "100% Anonymous", desc: "Your identity is heavily encrypted and structurally decoupled from your feedback.", icon: User, color: "text-blue-400", bg: "bg-blue-500/10" },
-                 { title: "Data Science Driven", desc: "Employs statistical variance penalties and population outlier detection to threshold teacher performance.", icon: BarChart3, color: "text-indigo-400", bg: "bg-indigo-500/10" },
-                 { title: "Bias Reduction", desc: "Utilizes trimmed-mean algorithms to mathematically eliminate troll spam and rating biases.", icon: Sparkles, color: "text-purple-400", bg: "bg-purple-500/10" }
-               ].map((feature, i) => (
-                 <motion.div
-                   initial={{ opacity: 0, y: 20 }}
-                   animate={{ opacity: 1, y: 0 }}
-                   transition={{ delay: 0.6 + (i * 0.2) }}
-                   key={i}
-                   className="p-8 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl hover:bg-white/10 transition-colors text-left group"
-                 >
-                   <div className={`p-4 rounded-2xl w-fit mb-6 ${feature.bg} ${feature.color} border border-white/5 group-hover:scale-110 transition-transform`}>
-                      <feature.icon size={28} />
-                   </div>
-                   <h3 className="text-2xl font-bold text-white mb-3">{feature.title}</h3>
-                   <p className="text-slate-400 font-medium leading-relaxed">{feature.desc}</p>
-                 </motion.div>
-               ))}
+              {[
+                { title: "100% Anonymous", desc: "Your identity is heavily encrypted and structurally decoupled from your feedback.", icon: User, color: "text-blue-400", bg: "bg-blue-500/10" },
+                { title: "Data Science Driven", desc: "Employs statistical variance penalties and population outlier detection to threshold teacher performance.", icon: BarChart3, color: "text-indigo-400", bg: "bg-indigo-500/10" },
+                { title: "Bias Reduction", desc: "Utilizes trimmed-mean algorithms to mathematically eliminate troll spam and rating biases.", icon: Sparkles, color: "text-purple-400", bg: "bg-purple-500/10" }
+              ].map((feature, i) => (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 + (i * 0.2) }}
+                  key={i}
+                  className="p-8 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl hover:bg-white/10 transition-colors text-left group"
+                >
+                  <div className={`p-4 rounded-2xl w-fit mb-6 ${feature.bg} ${feature.color} border border-white/5 group-hover:scale-110 transition-transform`}>
+                    <feature.icon size={28} />
+                  </div>
+                  <h3 className="text-2xl font-bold text-white mb-3">{feature.title}</h3>
+                  <p className="text-slate-400 font-medium leading-relaxed">{feature.desc}</p>
+                </motion.div>
+              ))}
             </div>
 
             <div className="mt-auto pt-10 text-center text-slate-500 text-sm opacity-70">
-               &copy; {new Date().getFullYear()} AITR feedback Portal. All rights reserved.
+              &copy; {new Date().getFullYear()} AITR feedback Portal. All rights reserved.
             </div>
 
             {/* Instructions Modal */}
@@ -319,39 +324,39 @@ function LoginContent() {
                     >
                       <X size={24} />
                     </button>
-                    
+
                     <h2 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                       <BookOpen className="text-indigo-400" size={32} />
-                       How to Give Feedback
+                      <BookOpen className="text-indigo-400" size={32} />
+                      How to Give Feedback
                     </h2>
                     <p className="text-slate-400 mb-8 border-b border-slate-800 pb-6">Follow these simple steps to successfully submit your anonymous review.</p>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                       {[
-                         { step: 1, title: "Access Your Link", desc: "Open the unique feedback link shared by your staff or faculty.", icon: LinkIcon, color: "text-blue-400", bg: "bg-blue-400/10" },
-                         { step: 2, title: "Sign In as Student", desc: "Click the 'Give Feedback' button on the homepage and log in securely.", icon: LogIn, color: "text-indigo-400", bg: "bg-indigo-400/10" },
-                         { step: 3, title: "Review Questions", desc: "A dashboard will appear featuring 10 distinct questions evaluating your teacher's performance.", icon: Star, color: "text-purple-400", bg: "bg-purple-400/10" },
-                         { step: 4, title: "Rate & Submit", desc: "Rate each question on a Star scale where 5 is Highest and 1 is Lowest. Attempt all questions.", icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" }
-                       ].map((item, i) => (
-                         <div key={i} className="flex gap-5 p-5 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-colors">
-                            <div className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl ${item.bg} ${item.color}`}>
-                                {item.step}
-                            </div>
-                            <div>
-                               <h3 className="text-xl font-bold text-slate-200 mb-2">{item.title}</h3>
-                               <p className="text-slate-400 text-sm leading-relaxed">{item.desc}</p>
-                            </div>
-                         </div>
-                       ))}
+                      {[
+                        { step: 1, title: "Access Your Link", desc: "Open the unique feedback link shared by your staff or faculty.", icon: LinkIcon, color: "text-blue-400", bg: "bg-blue-400/10" },
+                        { step: 2, title: "Sign In as Student", desc: "Click the 'Give Feedback' button on the homepage and log in securely.", icon: LogIn, color: "text-indigo-400", bg: "bg-indigo-400/10" },
+                        { step: 3, title: "Review Questions", desc: "A dashboard will appear featuring 10 distinct questions evaluating your teacher's performance.", icon: Star, color: "text-purple-400", bg: "bg-purple-400/10" },
+                        { step: 4, title: "Rate & Submit", desc: "Rate each question on a Star scale where 5 is Highest and 1 is Lowest. Attempt all questions.", icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" }
+                      ].map((item, i) => (
+                        <div key={i} className="flex gap-5 p-5 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-colors">
+                          <div className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl ${item.bg} ${item.color}`}>
+                            {item.step}
+                          </div>
+                          <div>
+                            <h3 className="text-xl font-bold text-slate-200 mb-2">{item.title}</h3>
+                            <p className="text-slate-400 text-sm leading-relaxed">{item.desc}</p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    
+
                     <div className="flex justify-end pt-6 border-t border-slate-800">
-                        <button
-                          onClick={() => setShowInstructions(false)}
-                          className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-colors shadow-lg shadow-indigo-600/30"
-                        >
-                          Understood!
-                        </button>
+                      <button
+                        onClick={() => setShowInstructions(false)}
+                        className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-colors shadow-lg shadow-indigo-600/30"
+                      >
+                        Understood!
+                      </button>
                     </div>
                   </motion.div>
                 </motion.div>
@@ -371,7 +376,7 @@ function LoginContent() {
             <div className="relative lg:w-1/2 flex flex-col justify-center px-8 lg:px-24 pb-24 pt-20 z-10">
               <div className="flex flex-col items-start gap-6 mb-14">
                 <button onClick={() => setShowLogin(false)} className="bg-white/10 hover:bg-white/20 text-white inline-flex items-center gap-2 px-4 py-2 rounded-xl backdrop-blur-md transition-all font-bold border border-white/10 text-sm">
-                   ← Back to Home
+                  ← Back to Home
                 </button>
                 <div className="bg-white inline-block px-6 py-4 rounded-3xl shadow-xl shadow-white/5 ring-1 ring-white/10">
                   <Image src="/images/AITR-logo.jpg" alt="AITR Logo" width={200} height={60} className="object-contain" />
@@ -454,6 +459,20 @@ function LoginContent() {
                     <div className="space-y-5">
                       {role === 'student' ? (
                         <>
+                          <div className="space-y-2 mb-4">
+                            <label className="text-sm font-semibold text-slate-300 ml-1">Academic Session</label>
+                            <Select value={session} onValueChange={setSession} disabled={!!sessionFromUrl}>
+                              <SelectTrigger className="bg-white/5 border-white/12 text-white focus:ring-blue-500/50">
+                                <SelectValue placeholder="Select Session" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Jun-Dec 2026">Jun-Dec 2026</SelectItem>
+                                <SelectItem value="Jan-May 2027">Jan-May 2027</SelectItem>
+                                <SelectItem value="Jun-Dec 2027">Jun-Dec 2027</SelectItem>
+                                <SelectItem value="Jan-May 2028">Jan-May 2028</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                               <label className="text-sm font-semibold text-slate-300 ml-1">Branch</label>
@@ -462,15 +481,18 @@ function LoginContent() {
                                   <SelectValue placeholder="Select Branch" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="CS">CS</SelectItem>
+                                  <SelectItem value="CSE">CSE</SelectItem>
+                                  <SelectItem value="CSE(RL)">CSE(RL)</SelectItem>
                                   <SelectItem value="IT">IT</SelectItem>
-                                  <SelectItem value="DS">DS</SelectItem>
-                                  <SelectItem value="AIML">AIML</SelectItem>
-                                  <SelectItem value="CY">CY</SelectItem>
+                                  <SelectItem value="CSE(DS)">CSE(DS)</SelectItem>
+                                  <SelectItem value="CSE(CY)">CSE(CY)</SelectItem>
                                   <SelectItem value="CSIT">CSIT</SelectItem>
+                                  <SelectItem value="CSE(AIML)">CSE(AIML)</SelectItem>
+                                  <SelectItem value="ME">ME</SelectItem>
+                                  <SelectItem value="CE">CE</SelectItem>
                                   <SelectItem value="EC">EC</SelectItem>
-                                  <SelectItem value="CIVIL">CIVIL</SelectItem>
-                                  <SelectItem value="MECHANICAL">MECHANICAL</SelectItem>
+                                  <SelectItem value="EC-ACT">EC-ACT</SelectItem>
+                                  <SelectItem value="EC-VLSI">EC-VLSI</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -511,7 +533,7 @@ function LoginContent() {
                                   <SelectValue placeholder="Select Section" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {[1, 2, 3, 4, 5].map(s => (
+                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => (
                                     <SelectItem key={s} value={s.toString()}>Section {s}</SelectItem>
                                   ))}
                                 </SelectContent>

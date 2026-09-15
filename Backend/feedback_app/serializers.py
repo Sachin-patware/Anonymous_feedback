@@ -8,6 +8,10 @@ from feedback_app.models import Academic_Subject, Faculty_Teacher, Academic_Allo
 class LoginSerializer(forms.Form):
     REQUIRED_MSG = "All fields are required"
      
+    session = forms.CharField(
+        required=True,
+        error_messages={'required': REQUIRED_MSG}
+    )
     branch = forms.CharField(
         required=True,
         error_messages={'required': REQUIRED_MSG}
@@ -27,7 +31,7 @@ class LoginSerializer(forms.Form):
 
     def clean_branch(self):
         branch = self.cleaned_data.get('branch', '').upper().strip()
-        valid_branches = ['CS', 'IT', 'DS', 'AIML','CY','CSIT','EC','Mechinical','Civil']
+        valid_branches = ['CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI']
         if branch not in valid_branches:
             raise forms.ValidationError(f"Invalid branch. Must be one of: {', '.join(valid_branches)}")
         return branch
@@ -102,7 +106,7 @@ class AcademicSubjectSerializer(serializers.ModelSerializer):
         return value
 
     def validate_Branch(self, value):
-        valid_branches = ['CS', 'IT', 'DS', 'AIML', 'CY', 'CSIT', 'EC','CIVIL', 'MECHANICAL']
+        valid_branches = ['CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI']
         if value.upper() not in valid_branches:
             raise serializers.ValidationError(f"Invalid branch. Must be one of: {', '.join(valid_branches)}")
         return value.upper()
@@ -136,8 +140,14 @@ class AcademicAllocationSerializer(serializers.ModelSerializer):
         return value
 
     def validate_Target_Section(self, value):
-        if not (1 <= value <= 5):
+        if not (1 <= value <= 10):
             raise serializers.ValidationError("Target section must be between 1 and 5.")
+        return value
+
+    def validate_AcademicSession(self, value):
+        import re
+        if not re.match(r'^[A-Z][a-z]{2}-[A-Z][a-z]{2} \d{4}$', value):
+            raise serializers.ValidationError("Academic Session must be in the format 'MMM-MMM YYYY' (e.g., Jun-Dec 2026).")
         return value
 
 class StaffUserSerializer(serializers.ModelSerializer):
@@ -148,15 +158,7 @@ class StaffUserSerializer(serializers.ModelSerializer):
             'password': {'write_only': True, 'required': False}
         }
 
-    def create(self, validated_data):
-        password = validated_data.pop('password', None)
-        instance = self.Meta.model(**validated_data)
-        if password:
-            instance.set_password(password)
-        else:
-            instance.set_password('admin@123')
-        instance.save()
-        return instance
+ 
 
     def update(self, instance, validated_data):
         request = self.context.get('request')

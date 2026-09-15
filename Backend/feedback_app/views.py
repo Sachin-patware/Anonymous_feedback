@@ -91,6 +91,7 @@ def login(request):
         payload = request.POST.dict() or request.GET.dict()
 
     # normalize keys from various client names
+    session_raw = payload.get('session') or payload.get('AcademicSession')
     branch_raw = payload.get('branch') or payload.get('Branch')
     year_raw = payload.get('year') or payload.get('Year')
     semester_raw = payload.get('semester') or payload.get('Semester')
@@ -105,21 +106,21 @@ def login(request):
     # Advanced Link Security: Verify Signature if advanced params are present
     # If any class parameter is provided AND a signature is present, we verify it to prevent manipulation
     # If no signature is present, we proceed as a standard manual login (basic link)
-    has_advanced_params = any([branch_raw, year_raw, semester_raw, section_raw])
+    has_advanced_params = any([session_raw, branch_raw, year_raw, semester_raw, section_raw])
     if has_advanced_params:
         sig = payload.get('sig')
         if sig:
             signer = Signer(sep=':')
             try:
-                # Reconstruct the string that was signed: "branch|year|semester|section"
-                # Note: order and format must match the generator
-                expected_data = f"{branch_raw}|{year_raw}|{semester_raw}|{section_raw}"
+                # Reconstruct the string that was signed
+                expected_data = f"{session_raw}|{branch_raw}|{year_raw}|{semester_raw}|{section_raw}"
                 signer.unsign(f"{expected_data}:{sig}")
             except BadSignature:
                 return JsonResponse({'status': 'error', 'error': 'Invalid security signature. URL may have been tampered with.'}, status=403)
 
     # validate inputs via serializer (Django Form)
     serializer = LoginSerializer(data={
+        'session': session_raw,
         'branch': branch_raw,
         'year': year_raw,
         'semester': semester_raw,
@@ -129,6 +130,7 @@ def login(request):
     if not serializer.is_valid():
         return JsonResponse({'status': 'error', 'errors': serializer.errors}, status=400)
 
+    session = serializer.cleaned_data.get('session')
     branch = serializer.cleaned_data.get('branch')
     year = serializer.cleaned_data.get('year')
     semester = serializer.cleaned_data.get('semester')
@@ -140,6 +142,7 @@ def login(request):
     # Generate JWT with class info
     token = generate_jwt({
         'enrollment': student_id,
+        'session': session,
         'branch': branch,
         'year': year,
         'semester': semester,
@@ -152,6 +155,7 @@ def login(request):
         'message': 'login successful',
         'EnrollmentNo': student_id,
         'FullName': f"Guest Student ({student_id[:8]})",
+        'session': session,
         'branch': branch,
         'year': year,
         'semester': semester,
@@ -214,17 +218,19 @@ def my_teachers(request):
     Matches student Branch, Year, Section, and Semester with Academic_Allocation.
     """
 
+    session = request.jwt_payload.get("session")
     enrollment = request.jwt_payload.get("enrollment")
     branch = request.jwt_payload.get("branch")
     year = request.jwt_payload.get("year")
     semester = request.jwt_payload.get("semester")
     section = request.jwt_payload.get("section")
 
-    if not enrollment or not branch or not year or not semester or not section:
+    if not enrollment or not branch or not year or not semester or not section or not session:
         return JsonResponse({"status": "error", "error": "invalid token payload"}, status=401)
 
     qs = Academic_Allocation.objects.select_related("TeacherID", "SubjectCode") \
         .filter(
+            AcademicSession=session,
             TargetBranch__iexact=branch,
             Target_Year=year,
             Target_Section=section,
@@ -328,13 +334,14 @@ def submit_feedback(request):
     # -------------------------------------
     # 3. Get Student Info from JWT
     # -------------------------------------
+    student_session = request.jwt_payload.get("session")
     enrollment_no = request.jwt_payload.get("enrollment")
     student_branch = request.jwt_payload.get("branch")
     student_year = request.jwt_payload.get("year")
     student_semester = request.jwt_payload.get("semester")
     student_section = request.jwt_payload.get("section")
 
-    if not enrollment_no or not student_branch:
+    if not enrollment_no or not student_branch or not student_session:
         return JsonResponse({"status": "error", "error": "invalid token payload"}, status=401)
 
     # -------------------------------------
@@ -363,7 +370,8 @@ def submit_feedback(request):
     # 6. Allocation must belong to student's class
     # -------------------------------------
     if (
-        alloc.TargetBranch.lower() != student_branch.lower()
+        alloc.AcademicSession != student_session
+        or alloc.TargetBranch.lower() != student_branch.lower()
         or alloc.Target_Year != student_year
         or alloc.Target_Section != student_section
         or alloc.Target_Semester != student_semester
@@ -791,10 +799,10 @@ def admin_get_table_data(request, table_name):
             
             if field_name_lower in ['branches', 'branchs']:
                 meta['type'] = 'multi-select'
-                meta['choices'] = [{'value': b, 'label': b} for b in ['CS', 'IT', 'DS', 'AIML', 'CY', 'CSIT', 'EC', 'CIVIL', 'MECHANICAL']]
+                meta['choices'] = [{'value': b, 'label': b} for b in ['CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI']]
             elif 'branch' in field_name_lower:
                 meta['type'] = 'select'
-                meta['choices'] = [{'value': b, 'label': b} for b in ['CS', 'IT', 'DS', 'AIML', 'CY', 'CSIT', 'EC', 'CIVIL', 'MECHANICAL']]
+                meta['choices'] = [{'value': b, 'label': b} for b in ['CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI']]
             elif 'semester' in field_name_lower:
                 meta['type'] = 'select'
                 meta['choices'] = [{'value': i, 'label': f"Semester {i}"} for i in range(1, 9)]
@@ -803,7 +811,10 @@ def admin_get_table_data(request, table_name):
                 meta['choices'] = [{'value': i, 'label': f"Year {i}"} for i in range(1, 5)]
             elif 'section' in field_name_lower:
                 meta['type'] = 'select'
-                meta['choices'] = [{'value': i, 'label': f"Section {i}"} for i in range(1, 6)]
+                meta['choices'] = [{'value': i, 'label': f"Section {i}"} for i in range(1, 11)]
+            elif 'academicsession' in field_name_lower or 'session' in field_name_lower:
+                meta['type'] = 'select'
+                meta['choices'] = [{'value': s, 'label': s} for s in ["Jun-Dec 2026", "Jan-May 2027", "Jun-Dec 2027", "Jan-May 2028"]]
             
             # Visibility/Form overrides for user models
             if is_user_model and f.name in ['last_login', 'is_first_login', 'is_active', 'is_superuser', 'is_staff', 'date_joined']:
@@ -1381,16 +1392,17 @@ def admin_generate_signature(request):
     """Generate a cryptographic signature for a class link to prevent tampering"""
     try:
         payload = json.loads(request.body)
+        session = str(payload.get('session', ''))
         branch = payload.get('branch', '')
         year = str(payload.get('year', ''))
         semester = str(payload.get('semester', ''))
         section = str(payload.get('section', ''))
 
-        if not all([branch, year, semester, section]):
+        if not all([session, branch, year, semester, section]):
             return JsonResponse({"status": "error", "error": "Missing class parameters"}, status=400)
 
         # Create a stable string to sign
-        data_to_sign = f"{branch}|{year}|{semester}|{section}"
+        data_to_sign = f"{session}|{branch}|{year}|{semester}|{section}"
         
         signer = Signer(sep=':')
         signed_value = signer.sign(data_to_sign)
