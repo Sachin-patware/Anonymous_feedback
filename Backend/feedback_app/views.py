@@ -546,6 +546,7 @@ def admin_login(request):
         return JsonResponse({
             'status': 'ok',
             'message': 'login successful',
+            'user_id': user.id,
             'username': user.username,
             'role': user.role,
             'branches': user.branches if hasattr(user, 'branches') else [],
@@ -668,6 +669,11 @@ def admin_get_table_data(request, table_name):
         if q_param and 'all' not in filters_dict:
             filters_dict['all'] = q_param
 
+        # Optimize relations if foreign keys exist
+        fk_fields = [f.name for f in model._meta.get_fields() if f.is_relation and f.many_to_one and f.related_model]
+        if fk_fields:
+            queryset = queryset.select_related(*fk_fields)
+
         if filters_dict:
             try:
                 from django.db.models import Q
@@ -681,52 +687,63 @@ def admin_get_table_data(request, table_name):
                         # Generic search across all fields
                         search_query = Q()
                         for field in model._meta.get_fields():
-                            if not hasattr(field, 'attname'):
+                            if field.is_relation:
+                                if field.many_to_one and field.related_model:
+                                    for rf in field.related_model._meta.get_fields():
+                                        if hasattr(rf, 'get_internal_type') and rf.get_internal_type() in ['CharField', 'TextField', 'EmailField']:
+                                            search_query |= Q(**{f"{field.name}__{rf.name}__icontains": val})
                                 continue
                             
-                            # Resolve internal type
-                            if hasattr(field, 'target_field'):
-                                internal_type = field.target_field.get_internal_type()
-                            elif hasattr(field, 'related_model') and hasattr(field.related_model, '_meta'):
-                                internal_type = field.related_model._meta.pk.get_internal_type()
-                            else:
-                                internal_type = field.get_internal_type()
-                                
+                            if not hasattr(field, 'get_internal_type'):
+                                continue
+                            
+                            internal_type = field.get_internal_type()
                             if internal_type in ['CharField', 'TextField', 'EmailField']:
-                                search_query |= Q(**{f"{field.attname}__icontains": val})
+                                search_query |= Q(**{f"{field.name}__icontains": val})
                         if search_query:
                             queryset = queryset.filter(search_query)
                     else:
                         # Specific column search
                         try:
                             field = model._meta.get_field(col)
-                            if not hasattr(field, 'attname'):
+                            
+                            # Handle foreign-key relation fields
+                            if field.is_relation and field.many_to_one and field.related_model:
+                                rel_q = Q()
+                                for rf in field.related_model._meta.get_fields():
+                                    if not hasattr(rf, 'get_internal_type'):
+                                        continue
+                                    if rf.get_internal_type() in ['CharField', 'TextField', 'EmailField']:
+                                        rel_q |= Q(**{f"{field.name}__{rf.name}__icontains": val})
+                                    elif rf.get_internal_type() in ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField', 'PositiveBigIntegerField', 'AutoField', 'BigAutoField', 'SmallAutoField']:
+                                        try:
+                                            num_val = int(float(val))
+                                            rel_q |= Q(**{f"{field.name}__{rf.name}": num_val})
+                                        except ValueError:
+                                            pass
+                                if rel_q:
+                                    queryset = queryset.filter(rel_q)
                                 continue
-                                
-                            # Resolve target internal type for relations
-                            if hasattr(field, 'target_field'):
-                                internal_type = field.target_field.get_internal_type()
-                            elif hasattr(field, 'related_model') and hasattr(field.related_model, '_meta'):
-                                internal_type = field.related_model._meta.pk.get_internal_type()
-                            else:
-                                internal_type = field.get_internal_type()
-                                
-                            lookup_field = field.attname
+
+                            if not hasattr(field, 'get_internal_type'):
+                                continue
+
+                            internal_type = field.get_internal_type()
 
                             if internal_type in ['CharField', 'TextField', 'EmailField']:
-                                queryset = queryset.filter(**{f"{lookup_field}__icontains": val})
+                                queryset = queryset.filter(**{f"{field.name}__icontains": val})
                                 
                             elif internal_type in ['IntegerField', 'BigIntegerField', 'SmallIntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField', 'PositiveBigIntegerField', 'AutoField', 'BigAutoField', 'SmallAutoField']:
                                 try:
                                     num_val = int(float(val))
-                                    queryset = queryset.filter(**{f"{lookup_field}": num_val})
+                                    queryset = queryset.filter(**{f"{field.name}": num_val})
                                 except ValueError:
                                     pass
                                     
                             elif internal_type in ['FloatField', 'DecimalField']:
                                 try:
                                     num_val = float(val)
-                                    queryset = queryset.filter(**{f"{lookup_field}": num_val})
+                                    queryset = queryset.filter(**{f"{field.name}": num_val})
                                 except ValueError:
                                     pass
                         except Exception:
@@ -1050,7 +1067,18 @@ def admin_update_row(request, table_name, row_id):
                 if branch_val and branch_val not in request.user.branches:
                     return JsonResponse({"status": "error", "error": f"You do not have permission to move data to branch {branch_val}"}, status=403)
 
-        # Get the object (applying role filters to ensure they can see it)
+        # Security: Prevent logged-in user from deactivating their own account
+        if model.__name__ == 'StaffUser':
+            user_pk = getattr(request.user, 'pk', None)
+            user_id = getattr(request.user, 'id', None)
+            user_username = getattr(request.user, 'username', '')
+            if str(row_id) in [str(user_pk), str(user_id), str(user_username)]:
+                if 'is_active' in payload:
+                    is_active_val = payload.get('is_active')
+                    if is_active_val is False or str(is_active_val).lower() in ['false', '0']:
+                        return JsonResponse({"status": "error", "error": "You cannot deactivate your own account."}, status=400)
+
+        # Get the object (applying role filters to ensure they can't see it)
         try:
             # Re-apply role filters to ensure they can't update what they can't see
             visible_qs = apply_role_filters(request.user, model.objects.all(), model)
@@ -1060,6 +1088,12 @@ def admin_update_row(request, table_name, row_id):
                 "status": "error",
                 "error": f"row with id {row_id} not found or access denied"
             }, status=404)
+
+        if model.__name__ == 'StaffUser' and obj.pk == request.user.pk:
+            if 'is_active' in payload:
+                is_active_val = payload.get('is_active')
+                if is_active_val is False or str(is_active_val).lower() in ['false', '0']:
+                    return JsonResponse({"status": "error", "error": "You cannot deactivate your own account."}, status=400)
         
         # Map models to serializers for better validation
         serializer_map = {
@@ -1138,12 +1172,24 @@ def admin_delete_row(request, table_name, row_id):
                 "status": "error",
                 "error": f"table '{table_name}' not found"
             }, status=404)
+
+        # Security: Prevent logged-in user from deleting their own account
+        if model.__name__ == 'StaffUser':
+            user_pk = getattr(request.user, 'pk', None)
+            user_id = getattr(request.user, 'id', None)
+            user_username = getattr(request.user, 'username', '')
+            if str(row_id) in [str(user_pk), str(user_id), str(user_username)]:
+                return JsonResponse({"status": "error", "error": "You cannot delete your own account."}, status=400)
         
         # Get and delete the object
         try:
             # Re-apply role filters to ensure they can't delete what they can't see
             visible_qs = apply_role_filters(request.user, model.objects.all(), model)
             obj = visible_qs.get(pk=row_id)
+
+            if model.__name__ == 'StaffUser' and obj.pk == request.user.pk:
+                return JsonResponse({"status": "error", "error": "You cannot delete your own account."}, status=400)
+
             obj.delete()
             
             return JsonResponse({
