@@ -471,14 +471,16 @@ const RenderInputInner = ({
     onChange,
     isPk,
     tableData,
-    allData = {}
+    allData = {},
+    disabled = false
 }: {
     field: string,
     value: any,
     onChange: (val: any) => void,
     isPk: boolean,
     tableData: TableData | null,
-    allData?: any
+    allData?: any,
+    disabled?: boolean
 }) => {
     const [showPassword, setShowPassword] = useState(false);
     if (!tableData) return null;
@@ -541,12 +543,16 @@ const RenderInputInner = ({
                     const choice = meta.choices?.find(c => String(c.value) === val);
                     onChange(choice ? choice.value : val);
                 }}
+                disabled={disabled}
             >
                 <div className="relative group">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10 transition-colors group-focus-within:text-indigo-600">
                         {getFieldIcon(field)}
                     </div>
-                    <SelectTrigger className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-semibold text-sm shadow-sm hover:border-slate-300 h-auto">
+                    <SelectTrigger className={cn(
+                        "w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-semibold text-sm shadow-sm hover:border-slate-300 h-auto",
+                        disabled && "opacity-60 cursor-not-allowed bg-slate-50"
+                    )}>
                         <SelectValue placeholder="Select..." />
                     </SelectTrigger>
                 </div>
@@ -574,12 +580,16 @@ const RenderInputInner = ({
             <Select
                 value={value === true ? 'true' : value === false ? 'false' : ''}
                 onValueChange={(val) => onChange(val === 'true')}
+                disabled={disabled}
             >
                 <div className="relative group">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10 transition-colors group-focus-within:text-indigo-600">
                         <Shield size={16} className="text-emerald-500" />
                     </div>
-                    <SelectTrigger className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-semibold text-sm shadow-sm hover:border-slate-300 h-auto">
+                    <SelectTrigger className={cn(
+                        "w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-semibold text-sm shadow-sm hover:border-slate-300 h-auto",
+                        disabled && "opacity-60 cursor-not-allowed bg-slate-50"
+                    )}>
                         <SelectValue placeholder="Select..." />
                     </SelectTrigger>
                 </div>
@@ -795,12 +805,21 @@ export default function AdminDashboard() {
     const [firstLoginSubmitting, setFirstLoginSubmitting] = useState(false);
     const [showFirstLoginPassword, setShowFirstLoginPassword] = useState(false);
 
+    // Current User identification
+    const [currentUserId, setCurrentUserId] = useState<string>('');
+    const [currentUsername, setCurrentUsername] = useState<string>('');
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const token = localStorage.getItem('access_token');
             const role = localStorage.getItem('user_role');
             const branches = localStorage.getItem('user_branches');
             const isFirstLogin = localStorage.getItem('is_first_login');
+            const storedUserId = localStorage.getItem('user_id');
+            const storedUsername = localStorage.getItem('admin_username') || localStorage.getItem('username');
+
+            if (storedUserId) setCurrentUserId(storedUserId);
+            if (storedUsername) setCurrentUsername(storedUsername);
 
             if (!token) {
                 router.push('/');
@@ -1109,8 +1128,21 @@ export default function AdminDashboard() {
         }
     };
 
+    const isStaffUser = tableData?.model_name?.toLowerCase() === 'staffuser' || selectedTable.toLowerCase().includes('staffuser');
+
+    const isSelfRow = (row: any) => {
+        if (!isStaffUser || !row) return false;
+        const matchesId = currentUserId && String(row.id) === String(currentUserId);
+        const matchesUsername = currentUsername && String(row.username).toLowerCase() === String(currentUsername).toLowerCase();
+        return Boolean(matchesId || matchesUsername);
+    };
+
     const handleToggleActive = async (row: any) => {
         if (!tableData) return;
+        if (isSelfRow(row)) {
+            showToast('You cannot deactivate your own account.', 'error');
+            return;
+        }
         const pkValue = row[tableData.pk_field];
         const payload = { ...row, is_active: !row.is_active };
         try {
@@ -1132,6 +1164,11 @@ export default function AdminDashboard() {
 
     const handleSaveEdit = async () => {
         if (!editingRow || !tableData) return;
+
+        if (isSelfRow(editingRow) && (editingRow.is_active === false || editingRow.is_active === 'false' || editingRow.is_active === 0)) {
+            showToast('You cannot deactivate your own account.', 'error');
+            return;
+        }
 
         try {
             const pkValue = editingRow[tableData.pk_field];
@@ -1159,6 +1196,11 @@ export default function AdminDashboard() {
     const handleDelete = async (row: any) => {
         if (!tableData) return;
 
+        if (isSelfRow(row)) {
+            showToast('You cannot delete your own account.', 'error');
+            return;
+        }
+
         try {
             const pkValue = row[tableData.pk_field];
             const res = await apiFetch(`/dashboard-admin/table/${selectedTable}/${pkValue}/delete/`, {
@@ -1182,7 +1224,6 @@ export default function AdminDashboard() {
         t.table_name.toLowerCase().includes(filterTables.toLowerCase())
     );
 
-    const isStaffUser = tableData?.model_name?.toLowerCase() === 'staffuser' || selectedTable.toLowerCase().includes('staffuser');
     const staffUserVisible = ['id', 'username', 'role', 'department', 'branches', 'is_active'];
     const visibleFields = tableData ? tableData.fields.filter(field => 
         !isStaffUser || staffUserVisible.includes(field.toLowerCase())
@@ -1776,22 +1817,38 @@ export default function AdminDashboard() {
 
                                                                 let content;
                                                                 if (isStaffUser && field.toLowerCase() === 'is_active') {
-                                                                    const canToggle = userRole === 'admin';
+                                                                    const isSelf = isSelfRow(row);
+                                                                    const canToggle = userRole === 'admin' && !isSelf;
                                                                     content = (
-                                                                        <button 
-                                                                            onClick={(e) => { e.stopPropagation(); if(canToggle) handleToggleActive(row); }}
-                                                                            disabled={!canToggle}
-                                                                            className={cn(
-                                                                                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
-                                                                                value ? "bg-emerald-500" : "bg-slate-300",
-                                                                                canToggle ? "cursor-pointer hover:opacity-90" : "cursor-not-allowed opacity-70"
+                                                                        <div className="flex items-center gap-2">
+                                                                            <button 
+                                                                                onClick={(e) => { 
+                                                                                    e.stopPropagation(); 
+                                                                                    if (isSelf) {
+                                                                                        showToast('You cannot deactivate your own account.', 'error');
+                                                                                        return;
+                                                                                    }
+                                                                                    if (canToggle) handleToggleActive(row); 
+                                                                                }}
+                                                                                disabled={!canToggle}
+                                                                                title={isSelf ? "You cannot deactivate your own account" : undefined}
+                                                                                className={cn(
+                                                                                    "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
+                                                                                    value ? "bg-emerald-500" : "bg-slate-300",
+                                                                                    canToggle ? "cursor-pointer hover:opacity-90" : "cursor-not-allowed opacity-60"
+                                                                                )}
+                                                                            >
+                                                                                <span className={cn(
+                                                                                    "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                                                                                    value ? "translate-x-4" : "translate-x-0.5"
+                                                                                )} />
+                                                                            </button>
+                                                                            {isSelf && (
+                                                                                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200/60 px-1.5 py-0.5 rounded shadow-xs">
+                                                                                    You
+                                                                                </span>
                                                                             )}
-                                                                        >
-                                                                            <span className={cn(
-                                                                                "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
-                                                                                value ? "translate-x-4" : "translate-x-0.5"
-                                                                            )} />
-                                                                        </button>
+                                                                        </div>
                                                                     );
                                                                 } else if (meta?.type === 'boolean') {
                                                                     content = value ? (
@@ -1851,13 +1908,15 @@ export default function AdminDashboard() {
                                                                         >
                                                                             <Edit size={16} />
                                                                         </button>
-                                                                        <button
-                                                                            onClick={() => setDeleteConfirm(row)}
-                                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                                                                            title="Delete"
-                                                                        >
-                                                                            <Trash2 size={16} />
-                                                                        </button>
+                                                                        {!isSelfRow(row) && (
+                                                                            <button
+                                                                                onClick={() => setDeleteConfirm(row)}
+                                                                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                                                                                title="Delete"
+                                                                            >
+                                                                                <Trash2 size={16} />
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                             </td>
@@ -1996,19 +2055,30 @@ export default function AdminDashboard() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {tableData.fields
                                     .filter(field => !tableData.field_meta?.[field]?.is_auto)
-                                    .map((field) => (
-                                        <div key={field} className={cn("space-y-1.5", (tableData.field_meta?.[field]?.type === 'multi-select' || field === 'branches') ? "md:col-span-2" : "")}>
-                                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">{formatLabel(field)}</label>
-                                            <RenderInputInner
-                                                field={field}
-                                                value={editingRow[field]}
-                                                onChange={(val) => setEditingRow({ ...editingRow, [field]: val })}
-                                                isPk={field === tableData.pk_field}
-                                                tableData={tableData}
-                                                allData={editingRow}
-                                            />
-                                        </div>
-                                    ))}
+                                    .map((field) => {
+                                        const isFieldDisabled = isSelfRow(editingRow) && field.toLowerCase() === 'is_active';
+                                        return (
+                                            <div key={field} className={cn("space-y-1.5", (tableData.field_meta?.[field]?.type === 'multi-select' || field === 'branches') ? "md:col-span-2" : "")}>
+                                                <div className="flex items-center justify-between">
+                                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider pl-1">{formatLabel(field)}</label>
+                                                    {isFieldDisabled && (
+                                                        <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded">
+                                                            Cannot deactivate own account
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <RenderInputInner
+                                                    field={field}
+                                                    value={editingRow[field]}
+                                                    onChange={(val) => setEditingRow({ ...editingRow, [field]: val })}
+                                                    isPk={field === tableData.pk_field}
+                                                    tableData={tableData}
+                                                    allData={editingRow}
+                                                    disabled={isFieldDisabled}
+                                                />
+                                            </div>
+                                        );
+                                    })}
                             </div>
                         </div>
                         <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
