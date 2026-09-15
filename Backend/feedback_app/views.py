@@ -99,9 +99,9 @@ def login(request):
     token_provided = payload.get('token')
     fingerprint = payload.get('fingerprint')
 
-    # Security Check: Verify Access Token
-    if token_provided != CURRENT_ACCESS_TOKEN:
-        return JsonResponse({'status': 'error', 'error': 'Invalid access token'}, status=403)
+    # Security Check: Verify Access Token (Require authorized access link/token)
+    if not token_provided or token_provided != CURRENT_ACCESS_TOKEN:
+        return JsonResponse({'status': 'error', 'error': 'Please use the authorized feedback link provided to you to access this form.'}, status=403)
 
     # Advanced Link Security: Verify Signature if advanced params are present
     # If any class parameter is provided AND a signature is present, we verify it to prevent manipulation
@@ -116,7 +116,7 @@ def login(request):
                 expected_data = f"{session_raw}|{branch_raw}|{year_raw}|{semester_raw}|{section_raw}"
                 signer.unsign(f"{expected_data}:{sig}")
             except BadSignature:
-                return JsonResponse({'status': 'error', 'error': 'Invalid security signature. URL may have been tampered with.'}, status=403)
+                return JsonResponse({'status': 'error', 'error': 'Invalid or tampered feedback access link. Please use the authorized feedback link provided to you.'}, status=403)
 
     # validate inputs via serializer (Django Form)
     serializer = LoginSerializer(data={
@@ -234,9 +234,7 @@ def my_teachers(request):
             TargetBranch__iexact=branch,
             Target_Year=year,
             Target_Section=section,
-            Target_Semester=semester,
-            SubjectCode__Semester=semester,          # subject's Semester matches student
-            SubjectCode__Branch__iexact=branch       # subject's Branch matches student
+            Target_Semester=semester
         ) \
     .order_by("SubjectCode__SubjectCode")
 

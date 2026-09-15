@@ -1313,44 +1313,44 @@ export default function AdminDashboard() {
 
 
             {/* Top Navigation / Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 sm:mb-8">
                 <div>
-                    <h1 className="text-3xl font-black tracking-tight text-slate-900">
+                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
                         Admin <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">Console</span>
                     </h1>
-                    <p className="text-slate-500 mt-1 text-sm">
+                    <p className="text-slate-500 mt-1 text-xs sm:text-sm">
                         {activeTab === 'access' ? 'Manage tokens and generate student links' : activeTab === 'tables' ? 'Manage system database and records' : 'Analyze faculty performance and ratings'}
                     </p>
                 </div>
-                <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex bg-white p-1 sm:p-1.5 rounded-2xl border border-slate-200 shadow-sm w-full md:w-auto overflow-x-auto custom-scrollbar flex-nowrap">
                     <button
                         onClick={() => setActiveTab('access')}
                         className={cn(
-                            "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300",
+                            "flex-1 md:flex-none flex items-center justify-center gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-300 whitespace-nowrap",
                             activeTab === 'access' ? "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-200/60" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         )}
                     >
-                        <Shield size={18} />
+                        <Shield size={16} className="sm:w-[18px] sm:h-[18px]" />
                         Access Control
                     </button>
                     <button
                         onClick={() => setActiveTab('tables')}
                         className={cn(
-                            "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300",
+                            "flex-1 md:flex-none flex items-center justify-center gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-300 whitespace-nowrap",
                             activeTab === 'tables' ? "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-200/60" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         )}
                     >
-                        <TableProperties size={18} />
+                        <TableProperties size={16} className="sm:w-[18px] sm:h-[18px]" />
                         Tables
                     </button>
                     <button
                         onClick={() => setActiveTab('reports')}
                         className={cn(
-                            "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300",
+                            "flex-1 md:flex-none flex items-center justify-center gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-300 whitespace-nowrap",
                             activeTab === 'reports' ? "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-200/60" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         )}
                     >
-                        <BarChart3 size={18} />
+                        <BarChart3 size={16} className="sm:w-[18px] sm:h-[18px]" />
                         Analytics
                     </button>
                 </div>
@@ -1573,64 +1573,102 @@ export default function AdminDashboard() {
 
             {/* ── Tables Tab ── */}
             {activeTab === 'tables' && (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-
-                    {/* Sidebar: Table Selection */}
-                    <div className="lg:col-span-3 space-y-6 sticky top-24 h-fit">
-                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
-                            <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/50 flex items-center gap-2.5">
-                                <div className="p-1.5 bg-slate-200/70 rounded-lg">
-                                    <Database size={14} className="text-slate-600" />
-                                </div>
-                                <h2 className="font-bold text-slate-800 text-sm">Database Tables</h2>
-                            </div>
-                            <div className="p-3">
-                                <div className="relative mb-4 group px-0.5">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-                                    <input
-                                        type="text"
-                                        placeholder="Filter tables..."
-                                        value={filterTables}
-                                        onChange={(e) => setFilterTables(e.target.value)}
-                                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium placeholder:text-slate-400 shadow-inner h-10"
-                                    />
-                                </div>
-                                <div className="space-y-1 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
-                                    {filteredTableList.map((table) => (
-                                        <button
-                                            key={table.table_name}
-                                            onClick={() => {
-                                                setSelectedTable(table.table_name);
-                                                setCurrentPage(1);
-                                                setSortBy('');
-                                                setSearchQuery('');
-                                            }}
-                                            className={cn(
-                                                "w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex justify-between items-center group",
-                                                selectedTable === table.table_name
-                                                    ? "bg-indigo-50 text-indigo-700 border-l-[3px] border-l-indigo-500 shadow-sm"
-                                                    : "text-slate-600 hover:bg-slate-50 border-l-[3px] border-l-transparent"
-                                            )}
-                                        >
-                                            <span className="truncate">{table.model_name}</span>
-                                            <span className={cn(
-                                                "text-[10px] px-2 py-0.5 rounded-full font-bold min-w-[28px] text-center",
-                                                selectedTable === table.table_name ? "bg-indigo-200 text-indigo-800" : "bg-slate-100 text-slate-500 group-hover:bg-slate-200"
-                                            )}>
-                                                {table.row_count}
+                <div className="space-y-6 lg:space-y-0">
+                    {/* Mobile Table Selector (visible only on mobile lg:hidden) */}
+                    <div className="block lg:hidden bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2.5">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                <Database size={14} className="text-indigo-600" />
+                                Database Table
+                            </label>
+                            <span className="text-[11px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-full">
+                                {tables.length} tables
+                            </span>
+                        </div>
+                        <Select
+                            value={selectedTable}
+                            onValueChange={(tbl) => {
+                                setSelectedTable(tbl);
+                                setCurrentPage(1);
+                                setSortBy('');
+                                setSearchQuery('');
+                            }}
+                        >
+                            <SelectTrigger className="w-full h-11 bg-slate-50 border-slate-200 text-slate-900 font-bold text-sm rounded-xl">
+                                <SelectValue placeholder="Select a table to manage..." />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px] bg-white border-slate-200 shadow-xl">
+                                {tables.map((table) => (
+                                    <SelectItem key={table.table_name} value={table.table_name} className="font-semibold text-slate-700 py-2.5">
+                                        <div className="flex items-center justify-between w-full gap-4">
+                                            <span>{table.model_name}</span>
+                                            <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full ml-auto">
+                                                {table.row_count} rows
                                             </span>
-                                        </button>
-                                    ))}
-                                    {filteredTableList.length === 0 && (
-                                        <div className="text-center py-4 text-slate-400 text-sm">No tables found</div>
-                                    )}
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        {/* Sidebar: Table Selection (hidden on mobile, sticky on lg) */}
+                        <div className="hidden lg:block lg:col-span-3 space-y-6 sticky top-24 h-fit">
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
+                                <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/50 flex items-center gap-2.5">
+                                    <div className="p-1.5 bg-slate-200/70 rounded-lg">
+                                        <Database size={14} className="text-slate-600" />
+                                    </div>
+                                    <h2 className="font-bold text-slate-800 text-sm">Database Tables</h2>
+                                </div>
+                                <div className="p-3">
+                                    <div className="relative mb-4 group px-0.5">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                                        <input
+                                            type="text"
+                                            placeholder="Filter tables..."
+                                            value={filterTables}
+                                            onChange={(e) => setFilterTables(e.target.value)}
+                                            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-medium placeholder:text-slate-400 shadow-inner h-10"
+                                        />
+                                    </div>
+                                    <div className="space-y-1 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
+                                        {filteredTableList.map((table) => (
+                                            <button
+                                                key={table.table_name}
+                                                onClick={() => {
+                                                    setSelectedTable(table.table_name);
+                                                    setCurrentPage(1);
+                                                    setSortBy('');
+                                                    setSearchQuery('');
+                                                }}
+                                                className={cn(
+                                                    "w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex justify-between items-center group",
+                                                    selectedTable === table.table_name
+                                                        ? "bg-indigo-50 text-indigo-700 border-l-[3px] border-l-indigo-500 shadow-sm"
+                                                        : "text-slate-600 hover:bg-slate-50 border-l-[3px] border-l-transparent"
+                                                )}
+                                            >
+                                                <span className="truncate">{table.model_name}</span>
+                                                <span className={cn(
+                                                    "text-[10px] px-2 py-0.5 rounded-full font-bold min-w-[28px] text-center",
+                                                    selectedTable === table.table_name ? "bg-indigo-200 text-indigo-800" : "bg-slate-100 text-slate-500 group-hover:bg-slate-200"
+                                                )}>
+                                                    {table.row_count}
+                                                </span>
+                                            </button>
+                                        ))}
+                                        {filteredTableList.length === 0 && (
+                                            <div className="text-center py-4 text-slate-400 text-sm">No tables found</div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    {/* Main Content: Table View */}
-                    <div className="lg:col-span-9">
+                        {/* Main Content: Table View */}
+                        <div className="lg:col-span-9">
                         {selectedTable ? (
                             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[600px] overflow-hidden">
                                 {/* Toolbar */}
@@ -2025,6 +2063,7 @@ export default function AdminDashboard() {
                             </div>
                         )}
                     </div>
+                </div>
                 </div>
             )}
 
