@@ -1,6 +1,7 @@
 "use client"
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Database, Loader2, AlertCircle, Edit, Trash2, ChevronLeft, ChevronRight, Search, X, Save, ArrowUpDown, ArrowUp, ArrowDown, Copy, RefreshCw, Key, Link, BarChart3, TableProperties, Plus, Shield, User, BookText, Briefcase, Calendar, School, Hash, GraduationCap, ClipboardEdit, Eye, EyeOff, Lock, ShieldCheck } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Database, Loader2, AlertCircle, Edit, Trash2, ChevronLeft, ChevronRight, Search, X, Save, ArrowUpDown, ArrowUp, ArrowDown, Copy, RefreshCw, Key, Link, BarChart3, TableProperties, Plus, Shield, User, BookText, Briefcase, Calendar, School, Hash, GraduationCap, ClipboardEdit, Eye, EyeOff, Lock, ShieldCheck, Download } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import API_BASE_URL from '@/config';
 import { apiFetch } from '@/lib/api';
@@ -47,6 +48,411 @@ const formatLabel = (label: string) => {
 
 const MASKED_PASSWORD_VALUE = '********';
 
+// ─── Month helpers ────────────────────────────────────────────────────────────
+const MONTHS_FULL = [
+    'January','February','March','April','May','June',
+    'July','August','September','October','November','December',
+];
+const MONTH_ABBR: Record<string, string> = {
+    January:'Jan', February:'Feb', March:'Mar', April:'Apr',
+    May:'May', June:'Jun', July:'Jul', August:'Aug',
+    September:'Sep', October:'Oct', November:'Nov', December:'Dec',
+};
+const FULL_FROM_ABBR: Record<string, string> = Object.fromEntries(
+    Object.entries(MONTH_ABBR).map(([k, v]) => [v, k])
+);
+
+function buildSessionString(startFull: string, endFull: string, year: string): string {
+    if (!startFull || !endFull || !year) return '';
+    return `${MONTH_ABBR[startFull]}-${MONTH_ABBR[endFull]} ${year}`;
+}
+
+function parseSessionString(raw: string): { startFull: string; endFull: string; year: string } {
+    // e.g. "Jun-Dec 2026"
+    const m = raw.match(/^([A-Z][a-z]{2})-([A-Z][a-z]{2}) (\d{4})$/);
+    if (!m) return { startFull: '', endFull: '', year: '' };
+    return {
+        startFull: FULL_FROM_ABBR[m[1]] || '',
+        endFull:   FULL_FROM_ABBR[m[2]] || '',
+        year:      m[3],
+    };
+}
+
+function generateYearOptions(): string[] {
+    const now = new Date().getFullYear();
+    const years: string[] = [];
+    for (let y = now - 2; y <= now + 5; y++) years.push(String(y));
+    return years;
+}
+
+// ─── AcademicSessionInput ─────────────────────────────────────────────────────
+const AcademicSessionInput = ({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (val: string) => void;
+}) => {
+    const parsed = parseSessionString(value || '');
+    const [startFull, setStartFull] = React.useState(parsed.startFull || 'June');
+    const [endFull,   setEndFull]   = React.useState(parsed.endFull   || 'December');
+    const [year,      setYear]      = React.useState(parsed.year      || String(new Date().getFullYear()));
+    const [error,     setError]     = React.useState('');
+
+    // Sync internal state when external value changes (e.g. when editing an existing row)
+    React.useEffect(() => {
+        const p = parseSessionString(value || '');
+        if (p.startFull) setStartFull(p.startFull);
+        if (p.endFull)   setEndFull(p.endFull);
+        if (p.year)      setYear(p.year);
+    }, [value]);
+
+    const commit = (sf: string, ef: string, yr: string) => {
+        const startIdx = MONTHS_FULL.indexOf(sf);
+        const endIdx   = MONTHS_FULL.indexOf(ef);
+        if (startIdx >= endIdx) {
+            setError('End month must be after the start month.');
+            // Still write partial so user can see it; don't propagate
+            return;
+        }
+        setError('');
+        onChange(buildSessionString(sf, ef, yr));
+    };
+
+    const yearOptions = generateYearOptions();
+    const sessionPreview = buildSessionString(startFull, endFull, year);
+    const isValid = MONTHS_FULL.indexOf(startFull) < MONTHS_FULL.indexOf(endFull);
+
+    const selectClass = "w-full pl-3 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-semibold text-sm shadow-sm hover:border-slate-300 h-auto";
+
+    return (
+        <div className="space-y-2">
+            <div className="grid grid-cols-[1fr_auto_1fr_1fr] items-center gap-2">
+                {/* Start Month */}
+                <Select value={startFull} onValueChange={(v) => { setStartFull(v); commit(v, endFull, year); }}>
+                    <SelectTrigger className={selectClass}>
+                        <SelectValue placeholder="Start Month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {MONTHS_FULL.map(m => (
+                            <SelectItem key={m} value={m} className="font-medium text-slate-700 focus:bg-indigo-50 focus:text-indigo-700 cursor-pointer">{m}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+
+                <span className="text-slate-400 font-bold text-center select-none">—</span>
+
+                {/* End Month */}
+                <Select value={endFull} onValueChange={(v) => { setEndFull(v); commit(startFull, v, year); }}>
+                    <SelectTrigger className={selectClass}>
+                        <SelectValue placeholder="End Month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {MONTHS_FULL.map(m => (
+                            <SelectItem key={m} value={m} className="font-medium text-slate-700 focus:bg-indigo-50 focus:text-indigo-700 cursor-pointer">{m}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+
+                {/* Year */}
+                <Select value={year} onValueChange={(v) => { setYear(v); commit(startFull, endFull, v); }}>
+                    <SelectTrigger className={selectClass}>
+                        <SelectValue placeholder="Year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {yearOptions.map(y => (
+                            <SelectItem key={y} value={y} className="font-medium text-slate-700 focus:bg-indigo-50 focus:text-indigo-700 cursor-pointer">{y}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+
+            {/* Validation error */}
+            {error && (
+                <p className="text-xs font-semibold text-rose-500 flex items-center gap-1">
+                    <span>⚠</span> {error}
+                </p>
+            )}
+
+            {/* Preview */}
+            {sessionPreview && isValid && (
+                <p className="text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5 inline-block">
+                    Selected Session: <span className="font-extrabold">{sessionPreview}</span>
+                </p>
+            )}
+        </div>
+    );
+};
+
+// ─── ForeignKeySearchSelect ───────────────────────────────────────────────────
+const ForeignKeySearchSelect = ({
+    field,
+    value,
+    onChange,
+    targetTable,
+    placeholder,
+}: {
+    field: string;
+    value: string;
+    onChange: (val: string) => void;
+    targetTable: 'faculty_teacher' | 'academic_subject';
+    placeholder?: string;
+}) => {
+    const isTeacher = targetTable === 'faculty_teacher';
+    const [query, setQuery] = useState('');
+    const [isOpen, setIsOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [results, setResults] = useState<any[]>([]);
+    const [selectedDetail, setSelectedDetail] = useState<any | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Fetch initial details if value is present
+    useEffect(() => {
+        if (!value) {
+            setSelectedDetail(null);
+            return;
+        }
+
+        const currentCode = isTeacher ? selectedDetail?.TeacherID : selectedDetail?.SubjectCode;
+        if (currentCode === value) return;
+
+        let isMounted = true;
+        const pkField = isTeacher ? 'TeacherID' : 'SubjectCode';
+        apiFetch(`/dashboard-admin/table/${targetTable}/?q=${encodeURIComponent(value)}&page_size=5`)
+            .then(res => res.json())
+            .then(data => {
+                if (!isMounted) return;
+                if (data.status === 'ok' && Array.isArray(data.data)) {
+                    const match = data.data.find((item: any) => String(item[pkField]).toUpperCase() === String(value).toUpperCase());
+                    if (match) {
+                        setSelectedDetail(match);
+                    }
+                }
+            })
+            .catch(() => {});
+
+        return () => {
+            isMounted = false;
+        };
+    }, [value, targetTable, isTeacher]);
+
+    // Handle search-as-you-type with debouncing
+    const fetchResults = useCallback((searchTerm: string) => {
+        setLoading(true);
+        const searchParam = searchTerm.trim();
+        const url = searchParam
+            ? `/dashboard-admin/table/${targetTable}/?q=${encodeURIComponent(searchParam)}&page_size=15`
+            : `/dashboard-admin/table/${targetTable}/?page_size=15`;
+
+        apiFetch(url)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok' && Array.isArray(data.data)) {
+                    setResults(data.data);
+                } else {
+                    setResults([]);
+                }
+            })
+            .catch(() => {
+                setResults([]);
+            })
+            .finally(() => {
+                setLoading(false);
+            });
+    }, [targetTable]);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        setQuery(val);
+        setIsOpen(true);
+
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        debounceTimerRef.current = setTimeout(() => {
+            fetchResults(val);
+        }, 250);
+    };
+
+    const handleFocus = () => {
+        setIsOpen(true);
+        if (results.length === 0) {
+            fetchResults(query);
+        }
+    };
+
+    const handleSelect = (item: any) => {
+        const selectedCode = isTeacher ? item.TeacherID : item.SubjectCode;
+        setSelectedDetail(item);
+        onChange(selectedCode);
+        setQuery('');
+        setIsOpen(false);
+    };
+
+    const handleClear = () => {
+        setSelectedDetail(null);
+        onChange('');
+        setQuery('');
+        setIsOpen(true);
+        fetchResults('');
+    };
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        };
+    }, []);
+
+    // ── When a value is selected ──────────────────────────────────────────
+    if (value) {
+        return (
+            <div className="relative group">
+                <div className="w-full flex items-center justify-between p-2.5 px-3.5 bg-gradient-to-r from-indigo-50/70 to-slate-50 border border-indigo-200/80 rounded-xl shadow-sm transition-all hover:border-indigo-300">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                        <div className={cn(
+                            "p-2 rounded-lg flex-shrink-0",
+                            isTeacher ? "bg-indigo-100 text-indigo-700" : "bg-violet-100 text-violet-700"
+                        )}>
+                            {isTeacher ? <User size={18} /> : <BookText size={18} />}
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <span className={cn(
+                                    "font-mono font-black text-xs px-2 py-0.5 rounded-md",
+                                    isTeacher ? "bg-indigo-600 text-white" : "bg-violet-600 text-white"
+                                )}>
+                                    {value}
+                                </span>
+                                {selectedDetail && (
+                                    <span className="text-xs font-bold text-slate-800 truncate">
+                                        {isTeacher ? selectedDetail.FullName : selectedDetail.SubjectName}
+                                    </span>
+                                )}
+                            </div>
+                            {selectedDetail && (
+                                <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                                    {isTeacher
+                                        ? (selectedDetail.Designation || 'Faculty')
+                                        : `${selectedDetail.Branch || ''}${selectedDetail.Semester ? ` • Sem ${selectedDetail.Semester}` : ''}`}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleClear}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all ml-2 flex-shrink-0"
+                        title="Change selection"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ── When searching (no value selected) ─────────────────────────────────
+    return (
+        <div ref={containerRef} className="relative">
+            <div className="relative group">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors group-focus-within:text-indigo-600 z-10 text-slate-400">
+                    {loading ? (
+                        <Loader2 size={16} className="animate-spin text-indigo-500" />
+                    ) : isTeacher ? (
+                        <User size={16} />
+                    ) : (
+                        <BookText size={16} />
+                    )}
+                </div>
+                <input
+                    type="text"
+                    value={query}
+                    onChange={handleInputChange}
+                    onFocus={handleFocus}
+                    placeholder={placeholder || (isTeacher ? "Search Teacher ID or Name..." : "Search Subject Code or Name...")}
+                    className="w-full pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-semibold text-sm placeholder:text-slate-400 placeholder:font-normal shadow-sm hover:border-slate-300"
+                />
+                {query && (
+                    <button
+                        type="button"
+                        onClick={() => { setQuery(''); fetchResults(''); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-md"
+                    >
+                        <X size={14} />
+                    </button>
+                )}
+            </div>
+
+            {/* Dropdown Results */}
+            {isOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto custom-scrollbar divide-y divide-slate-100">
+                    {loading && results.length === 0 ? (
+                        <div className="p-4 flex items-center justify-center gap-2 text-xs font-semibold text-slate-500">
+                            <Loader2 size={16} className="animate-spin text-indigo-600" />
+                            <span>Searching {isTeacher ? 'teachers' : 'subjects'}...</span>
+                        </div>
+                    ) : results.length > 0 ? (
+                        results.map((item) => {
+                            const code = isTeacher ? item.TeacherID : item.SubjectCode;
+                            const title = isTeacher ? item.FullName : item.SubjectName;
+                            const subtitle = isTeacher
+                                ? item.Designation
+                                : `${item.Branch || ''}${item.Semester ? ` • Semester ${item.Semester}` : ''}`;
+
+                            return (
+                                <button
+                                    key={code}
+                                    type="button"
+                                    onClick={() => handleSelect(item)}
+                                    className="w-full px-3.5 py-2.5 text-left hover:bg-indigo-50/70 transition-colors flex items-center justify-between group cursor-pointer"
+                                >
+                                    <div className="min-w-0 pr-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn(
+                                                "font-mono font-extrabold text-xs px-2 py-0.5 rounded border transition-colors",
+                                                isTeacher 
+                                                    ? "bg-indigo-50 border-indigo-200 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600" 
+                                                    : "bg-violet-50 border-violet-200 text-violet-700 group-hover:bg-violet-600 group-hover:text-white group-hover:border-violet-600"
+                                            )}>
+                                                {code}
+                                            </span>
+                                            <span className="text-xs font-bold text-slate-800 truncate">
+                                                {title}
+                                            </span>
+                                        </div>
+                                        {subtitle && (
+                                            <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5 pl-0.5">
+                                                {subtitle}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-400 group-hover:text-indigo-600 uppercase tracking-wider flex-shrink-0">
+                                        Select
+                                    </span>
+                                </button>
+                            );
+                        })
+                    ) : (
+                        <div className="p-4 text-center text-xs font-semibold text-slate-400">
+                            {query ? (isTeacher ? 'No teachers found' : 'No subjects found') : (isTeacher ? 'Type to search teachers...' : 'Type to search subjects...')}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const getFieldIcon = (field: string) => {
     const f = field.toLowerCase();
     if (f.includes('teacher') || f.includes('faculty')) return <User size={16} className="text-indigo-500" />;
@@ -78,6 +484,37 @@ const RenderInputInner = ({
     if (!tableData) return null;
 
     const meta = tableData.field_meta?.[field] || { type: 'text', required: false, is_auto: false, choices: [] };
+
+    // ── AcademicSession: dynamic 3-part selector ─────────────────────────────
+    if (meta.type === 'academicsession') {
+        return <AcademicSessionInput value={value ?? ''} onChange={onChange} />;
+    }
+
+    // ── Teacher Autocomplete Search (Foreign Key) ─────────────────────────────
+    if (!isPk && (meta.type === 'teacher_search' || field.toLowerCase() === 'teacherid' || field.toLowerCase() === 'teacher_id')) {
+        return (
+            <ForeignKeySearchSelect
+                field={field}
+                value={String(value ?? '')}
+                onChange={onChange}
+                targetTable="faculty_teacher"
+                placeholder="Search Teacher ID or Name..."
+            />
+        );
+    }
+
+    // ── Subject Autocomplete Search (Foreign Key) ─────────────────────────────
+    if (!isPk && (meta.type === 'subject_search' || field.toLowerCase() === 'subjectcode' || field.toLowerCase() === 'subject_code')) {
+        return (
+            <ForeignKeySearchSelect
+                field={field}
+                value={String(value ?? '')}
+                onChange={onChange}
+                targetTable="academic_subject"
+                placeholder="Search Subject Code or Name..."
+            />
+        );
+    }
 
     // Smart Year/Semester Filtering
     let choices = meta.choices || [];
@@ -315,10 +752,13 @@ export default function AdminDashboard() {
     const [isUpdatingToken, setIsUpdatingToken] = useState(false);
 
     // Advanced Link Gen
+    const [genSession, setGenSession] = useState('Jun-Dec 2026');
     const [genBranch, setGenBranch] = useState('');
     const [genYear, setGenYear] = useState('');
     const [genSem, setGenSem] = useState('');
     const [genSection, setGenSection] = useState('');
+    const [advancedLinkUrl, setAdvancedLinkUrl] = useState('');
+    const qrRef = useRef<SVGSVGElement>(null);
 
     const YEAR_SEMESTER_MAP: Record<string, number[]> = {
         '1': [1, 2],
@@ -490,8 +930,12 @@ export default function AdminDashboard() {
     };
 
     const copyAdvancedLink = async () => {
-        if (!genBranch || !genYear || !genSem || !genSection) {
+        if (!genSession || !genBranch || !genYear || !genSem || !genSection) {
             showToast("Please select all class fields first", "error");
+            return;
+        }
+        if (!/^[A-Z][a-z]{2}-[A-Z][a-z]{2} \d{4}$/.test(genSession)) {
+            showToast("Invalid feedback session. End month must be after start month.", "error");
             return;
         }
 
@@ -499,6 +943,7 @@ export default function AdminDashboard() {
             const res = await apiFetch('/dashboard-admin/generate-signature/', {
                 method: 'POST',
                 body: JSON.stringify({
+                    session: genSession,
                     branch: genBranch,
                     year: genYear,
                     semester: genSem,
@@ -510,14 +955,16 @@ export default function AdminDashboard() {
             if (data.status === 'ok') {
                 const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
                 let link = `${baseUrl}/?token=${studentToken}`;
-                link += `&branch=${genBranch}`;
+                link += `&session=${encodeURIComponent(genSession)}`;
+                link += `&branch=${encodeURIComponent(genBranch)}`;
                 link += `&year=${genYear}`;
                 link += `&semester=${genSem}`;
                 link += `&section=${genSection}`;
                 link += `&sig=${data.signature}`;
 
                 navigator.clipboard.writeText(link);
-                showToast("Signed advanced link copied!", "success");
+                setAdvancedLinkUrl(link);
+                showToast("Signed advanced link copied! QR code generated below.", "success");
             } else {
                 showToast(data.error || "Failed to generate signature", "error");
             }
@@ -941,6 +1388,13 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                         <div className="p-6 space-y-5">
+                            <div className="space-y-1.5 mb-4">
+                                <span className="text-[11px] font-black text-slate-400 ml-1 uppercase">Feedback Conducting Session</span>
+                                <AcademicSessionInput
+                                    value={genSession}
+                                    onChange={setGenSession}
+                                />
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <span className="text-[11px] font-black text-slate-400 ml-1 uppercase">Branch</span>
@@ -950,7 +1404,7 @@ export default function AdminDashboard() {
                                         </SelectTrigger>
                                         <SelectContent className="bg-white border-slate-200 shadow-xl">
                                             {[
-                                                'CS', 'IT', 'DS', 'AIML', 'CY', 'CSIT', 'EC', 'CIVIL', 'MECHANICAL'
+                                                'CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI'
                                             ].filter(b => userRole === 'admin' || userBranches.includes(b)).map(b => (
                                                 <SelectItem key={b} value={b}>{b}</SelectItem>
                                             ))}
@@ -995,7 +1449,7 @@ export default function AdminDashboard() {
                                             <SelectValue placeholder="Section" />
                                         </SelectTrigger>
                                         <SelectContent className="bg-white border-slate-200 shadow-xl">
-                                            {[1, 2, 3, 4, 5].map(s => (
+                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(s => (
                                                 <SelectItem key={s} value={s.toString()}>Sec {s}</SelectItem>
                                             ))}
                                         </SelectContent>
@@ -1008,8 +1462,64 @@ export default function AdminDashboard() {
                                 className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold uppercase tracking-wider rounded-xl hover:from-violet-700 hover:to-indigo-700 shadow-lg shadow-violet-200/50 active:scale-[0.98] transition-all group"
                             >
                                 <Copy size={18} className="group-hover:scale-110 transition-transform" />
-                                Copy Advanced Link
+                                Generate Link &amp; QR Code
                             </button>
+
+                            {/* ── QR Code Panel ── */}
+                            {advancedLinkUrl && (
+                                <div className="mt-4 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-5 flex flex-col items-center gap-4 animate-in fade-in duration-300">
+                                    <p className="text-[11px] font-black text-violet-500 uppercase tracking-wider">Scan to Open Student Login</p>
+
+                                    {/* QR Code */}
+                                    <div className="p-3 bg-white rounded-2xl shadow-md border border-violet-100">
+                                        <QRCodeSVG
+                                            ref={qrRef}
+                                            value={advancedLinkUrl}
+                                            size={180}
+                                            bgColor="#ffffff"
+                                            fgColor="#4f46e5"
+                                            level="M"
+                                            includeMargin={false}
+                                        />
+                                    </div>
+
+                                    {/* Session info badge */}
+                                    <div className="text-center space-y-0.5">
+                                        <p className="text-xs font-extrabold text-slate-700">{genSession}</p>
+                                        <p className="text-[11px] text-slate-400 font-medium">
+                                            {genBranch} · Year {genYear} · Sem {genSem} · Sec {genSection}
+                                        </p>
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <div className="flex gap-2 w-full">
+                                        <button
+                                            onClick={() => { navigator.clipboard.writeText(advancedLinkUrl); showToast('Link copied!', 'info'); }}
+                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-violet-200 text-violet-700 text-xs font-bold rounded-xl hover:bg-violet-50 transition-all"
+                                        >
+                                            <Copy size={13} /> Copy Link
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                const svg = qrRef.current;
+                                                if (!svg) return;
+                                                const serializer = new XMLSerializer();
+                                                const svgStr = serializer.serializeToString(svg);
+                                                const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+                                                const url = URL.createObjectURL(blob);
+                                                const a = document.createElement('a');
+                                                a.href = url;
+                                                a.download = `QR_${genSession.replace(/ /g,'_')}_${genBranch}_Y${genYear}S${genSem}Sec${genSection}.svg`;
+                                                a.click();
+                                                URL.revokeObjectURL(url);
+                                            }}
+                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 transition-all"
+                                        >
+                                            <Download size={13} /> Download QR
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -51,77 +51,76 @@ def jwt_required(view_func):
 def jwt_admin_required(view_func):
     """
     Decorator for views that require JWT and specifically the 'admin' role.
+    Uses SimpleJWT validation (admin tokens are issued by SimpleJWT via RefreshToken.for_user).
     """
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
         auth_header = request.headers.get('Authorization')
-        if not auth_header:
+        if not auth_header or not auth_header.startswith('Bearer '):
             return JsonResponse({'status': 'error', 'error': 'authentication required'}, status=401)
-        
-        token_str = auth_header.split(' ')[1] if ' ' in auth_header else auth_header
-        
+
+        token_str = auth_header.split(' ', 1)[1]
+
         try:
             from rest_framework_simplejwt.authentication import JWTAuthentication
             authenticator = JWTAuthentication()
             validated_token = authenticator.get_validated_token(token_str)
             user = authenticator.get_user(validated_token)
-            
-            if user:
-                if not user.is_active:
-                    return JsonResponse({'status': 'error', 'error': 'user is inactive'}, status=403)
-                
-                # Check admin role
-                if user.role != 'admin':
-                    return JsonResponse({'status': 'error', 'error': 'admin access required'}, status=403)
-                
-                # Enforce first login password change
-                if getattr(user, 'is_first_login', False):
-                    return JsonResponse({'status': 'error', 'error': 'first_login_required'}, status=403)
-                
-                request.user = user
-                return view_func(request, *args, **kwargs)
-            else:
-                return JsonResponse({'status': 'error', 'error': 'invalid user'}, status=401)
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'error': str(e)}, status=401)
-            
+        except Exception:
+            return JsonResponse({'status': 'error', 'error': 'invalid or expired admin token'}, status=401)
+
+        if not user:
+            return JsonResponse({'status': 'error', 'error': 'invalid user'}, status=401)
+
+        if not user.is_active:
+            return JsonResponse({'status': 'error', 'error': 'user is inactive'}, status=403)
+
+        if user.role != 'admin':
+            return JsonResponse({'status': 'error', 'error': 'admin access required'}, status=403)
+
+        if getattr(user, 'is_first_login', False):
+            return JsonResponse({'status': 'error', 'error': 'first_login_required'}, status=403)
+
+        request.user = user
+        return view_func(request, *args, **kwargs)
+
     return _wrapped_view
+
 
 def jwt_hod_or_admin_required(view_func):
     """
     Decorator for views that allow both 'admin' and 'hod' roles.
+    Uses SimpleJWT validation (admin/HOD tokens are issued by SimpleJWT via RefreshToken.for_user).
     """
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
         auth_header = request.headers.get('Authorization')
-        if not auth_header:
+        if not auth_header or not auth_header.startswith('Bearer '):
             return JsonResponse({'status': 'error', 'error': 'authentication required'}, status=401)
-        
-        token_str = auth_header.split(' ')[1] if ' ' in auth_header else auth_header
-        
+
+        token_str = auth_header.split(' ', 1)[1]
+
         try:
             from rest_framework_simplejwt.authentication import JWTAuthentication
             authenticator = JWTAuthentication()
             validated_token = authenticator.get_validated_token(token_str)
             user = authenticator.get_user(validated_token)
-            
-            if user:
-                if not user.is_active:
-                    return JsonResponse({'status': 'error', 'error': 'user is inactive'}, status=403)
-                
-                # Role Check: MUST BE ADMIN OR HOD
-                if user.role not in ['admin', 'hod']:
-                    return JsonResponse({'status': 'error', 'error': 'access denied'}, status=403)
-                
-                # Enforce first login password change
-                if getattr(user, 'is_first_login', False):
-                    return JsonResponse({'status': 'error', 'error': 'first_login_required'}, status=403)
-                
-                request.user = user
-                return view_func(request, *args, **kwargs)
-            else:
-                return JsonResponse({'status': 'error', 'error': 'invalid user'}, status=401)
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'error': str(e)}, status=401)
-            
+        except Exception:
+            return JsonResponse({'status': 'error', 'error': 'invalid or expired admin token'}, status=401)
+
+        if not user:
+            return JsonResponse({'status': 'error', 'error': 'invalid user'}, status=401)
+
+        if not user.is_active:
+            return JsonResponse({'status': 'error', 'error': 'user is inactive'}, status=403)
+
+        if user.role not in ['admin', 'hod']:
+            return JsonResponse({'status': 'error', 'error': 'access denied'}, status=403)
+
+        if getattr(user, 'is_first_login', False):
+            return JsonResponse({'status': 'error', 'error': 'first_login_required'}, status=403)
+
+        request.user = user
+        return view_func(request, *args, **kwargs)
+
     return _wrapped_view
