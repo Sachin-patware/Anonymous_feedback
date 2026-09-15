@@ -1404,16 +1404,7 @@ export default function AdminDashboard() {
                                             {isUpdatingToken ? 'Saving...' : 'Save Token'}
                                         </button>
                                     )}
-                            <div className="pt-4 border-t border-slate-100">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Quick Copy — Basic Link</label>
-                                <button
-                                    onClick={copyStudentLink}
-                                    className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-slate-50 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-100 transition-all border border-slate-200 hover:border-slate-300"
-                                >
-                                    <Copy size={16} />
-                                    Copy Student Login Link
-                                </button>
-                            </div>
+                           
                         </div>
                     </div>
 

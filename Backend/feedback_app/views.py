@@ -99,24 +99,35 @@ def login(request):
     token_provided = payload.get('token')
     fingerprint = payload.get('fingerprint')
 
-    # Security Check: Verify Access Token (Require authorized access link/token)
+    # ── Security Check 1: Verify Access Token ──────────────────────────────────
     if not token_provided or token_provided != CURRENT_ACCESS_TOKEN:
-        return JsonResponse({'status': 'error', 'error': 'Please use the authorized feedback link provided to you to access this form.'}, status=403)
+        return JsonResponse({'status': 'error', 'error': 'Invalid or missing access token. Please use the authorized feedback link provided to you.'}, status=403)
 
-    # Advanced Link Security: Verify Signature if advanced params are present
-    # If any class parameter is provided AND a signature is present, we verify it to prevent manipulation
-    # If no signature is present, we proceed as a standard manual login (basic link)
-    has_advanced_params = any([session_raw, branch_raw, year_raw, semester_raw, section_raw])
-    if has_advanced_params:
-        sig = payload.get('sig')
-        if sig:
-            signer = Signer(sep=':')
-            try:
-                # Reconstruct the string that was signed
-                expected_data = f"{session_raw}|{branch_raw}|{year_raw}|{semester_raw}|{section_raw}"
-                signer.unsign(f"{expected_data}:{sig}")
-            except BadSignature:
-                return JsonResponse({'status': 'error', 'error': 'Invalid or tampered feedback access link. Please use the authorized feedback link provided to you.'}, status=403)
+    # ── Security Check 2: Mandatory Signature (Standalone token is NOT allowed) ─
+    sig = payload.get('sig')
+    if not sig:
+        return JsonResponse({
+            'status': 'error',
+            'error': 'Missing security signature. Standalone token access is not permitted. Please use the complete signed feedback link provided to you.'
+        }, status=403)
+
+    # ── Security Check 3: Verify all required class parameters are provided ────
+    if not session_raw or not branch_raw or not year_raw or not semester_raw or not section_raw:
+        return JsonResponse({
+            'status': 'error',
+            'error': 'Missing required class parameters. Please use the complete signed feedback link provided to you.'
+        }, status=400)
+
+    # ── Security Check 4: Cryptographic Signature Verification ──────────────────
+    signer = Signer(sep=':')
+    try:
+        expected_data = f"{session_raw}|{branch_raw}|{year_raw}|{semester_raw}|{section_raw}"
+        signer.unsign(f"{expected_data}:{sig}")
+    except BadSignature:
+        return JsonResponse({
+            'status': 'error',
+            'error': 'Invalid or tampered feedback access link. Class parameters do not match the authorized signature.'
+        }, status=403)
 
     # validate inputs via serializer (Django Form)
     serializer = LoginSerializer(data={

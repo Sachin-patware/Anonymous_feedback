@@ -263,8 +263,9 @@ function LoginContent() {
     }
 
     // Student login
-    if (!tokenFromUrl) {
-      showToast("Please use the authorized feedback link provided to you to access this form.", "error");
+    const sigFromUrl = searchParams.get('sig') || '';
+    if (!tokenFromUrl || !sigFromUrl) {
+      showToast("Please use the complete authorized signed feedback link provided to you.", "error");
       return;
     }
 
@@ -521,8 +522,8 @@ function LoginContent() {
 
                 <div className="mb-6 sm:mb-8 text-center">
                   <h2 className="text-2xl sm:text-3xl font-bold text-white mb-1 sm:mb-2">Welcome Login</h2>
-                  {role === 'student' && !tokenFromUrl ? (
-                    <p className="text-red-400 text-xs sm:text-sm font-medium">Access token required. Please use the link provided by admin.</p>
+                  {role === 'student' && (!tokenFromUrl || !searchParams.get('sig')) ? (
+                    <p className="text-red-400 text-xs sm:text-sm font-medium">Signed access link required. Please use the link provided by admin.</p>
                   ) : (
                     <p className="text-slate-400 text-xs sm:text-sm">Sign in to share your valuable feedback</p>
                   )}
