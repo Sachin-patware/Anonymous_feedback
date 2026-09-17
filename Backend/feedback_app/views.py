@@ -8,7 +8,8 @@ from django.db import transaction
 from django.core.signing import Signer, BadSignature
 from django.core import signing
 from django.utils import timezone
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import json
 import random
 import string
@@ -21,17 +22,39 @@ from feedback_app.date_filters import validate_date_range, apply_feedback_date_f
 
 ACCESS_GRANT_SALT = "student_feedback_access_grant_v1"
 
+def format_iso_ist(dt):
+    """Safely format datetime in Asia/Kolkata (IST) ISO format with timezone offset."""
+    if not dt:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return timezone.localtime(dt).isoformat()
+
 def create_opaque_access_token(grant):
     """
     Generate an opaque, cryptographically signed token string hiding all parameters.
     """
     return signing.dumps({"t": grant.grant_token}, salt=ACCESS_GRANT_SALT)
 
+def get_user_branches(user):
+    """Safely extract normalized list of branches assigned to a StaffUser."""
+    branches = getattr(user, 'branches', [])
+    if isinstance(branches, str):
+        try:
+            branches = json.loads(branches)
+        except Exception:
+            branches = [b.strip() for b in branches.split(',') if b.strip()]
+    if not isinstance(branches, list):
+        branches = []
+    return [str(b).strip() for b in branches if str(b).strip()]
+
+
 def resolve_grant_from_access_token(access_token_str):
     """
     Extract grant_token from opaque signed string and fetch AccessGrant from DB.
     Validates signature, expiration, active status, and response limits.
     Returns (grant, None, 200) on success, or (None, error_message, status_code) on failure.
+    Expired/deactivated records are kept in the database for auditing.
     """
     if not access_token_str or not isinstance(access_token_str, str):
         return None, "Missing access token.", 400
@@ -50,12 +73,10 @@ def resolve_grant_from_access_token(access_token_str):
         return None, "Access grant not found or revoked.", 404
     
     if not grant.is_active:
-        grant.delete()
-        return None, "This feedback link has been revoked and removed.", 403
+        return None, "This feedback link has been deactivated.", 403
     
     if grant.is_expired():
-        grant.delete()
-        return None, "Feedback link has expired and has been removed.", 403
+        return None, "Feedback link has expired. Please request a new link.", 403
     
     if grant.is_limit_reached():
         return None, "Maximum feedback responses reached for this link.", 403
@@ -1526,10 +1547,11 @@ def admin_generate_access_grant(request):
             return JsonResponse({"status": "error", "error": "Missing required class parameters"}, status=400)
 
         # Enforce HOD branch permission
-        if getattr(request.user, 'role', '') == 'hod':
-            allowed_branches = getattr(request.user, 'branches', []) or []
+        user_role = getattr(request.user, 'role', 'admin')
+        if user_role == 'hod':
+            allowed_branches = get_user_branches(request.user)
             if branch not in allowed_branches:
-                return JsonResponse({"status": "error", "error": f"Unauthorized branch '{branch}' for this HOD account."}, status=403)
+                return JsonResponse({"status": "error", "error": f"Access denied for branch '{branch}'."}, status=403)
 
         grant = AccessGrant.objects.create(
             session=session,
@@ -1548,7 +1570,8 @@ def admin_generate_access_grant(request):
             "status": "ok",
             "access": opaque_access,
             "grant_token": grant.grant_token,
-            "expires_at": grant.expires_at.isoformat(),
+            "created_at": format_iso_ist(grant.created_at),
+            "expires_at": format_iso_ist(grant.expires_at),
             "max_responses": grant.max_responses,
             "session": grant.session,
             "branch": grant.branch,
@@ -1578,7 +1601,7 @@ def resolve_feedback_access(request):
         "year": grant.year,
         "semester": grant.semester,
         "section": grant.section,
-        "expires_at": grant.expires_at.isoformat(),
+        "expires_at": format_iso_ist(grant.expires_at),
         "max_responses": grant.max_responses,
         "response_count": grant.response_count
     })
@@ -1587,21 +1610,20 @@ def resolve_feedback_access(request):
 @require_GET
 @jwt_hod_or_admin_required
 def admin_list_access_grants(request):
-    """List recent Access Grants for Admin/HOD management (purges and deletes expired & revoked grants from DB)"""
+    """
+    List Access Grants for Admin (all branches) or HOD (only assigned branches).
+    Retains history/audit records (both active and expired).
+    """
     try:
         user_role = getattr(request.user, 'role', 'admin')
-        user_branches = getattr(request.user, 'branches', []) or []
         
-        # Permanently delete all expired and deactivated grant records from the database table
-        now = timezone.now()
-        AccessGrant.objects.filter(Q(expires_at__isnull=False, expires_at__lte=now) | Q(is_active=False)).delete()
-        
-        queryset = AccessGrant.objects.filter(is_active=True).select_related('created_by').order_by('-created_at')
+        queryset = AccessGrant.objects.all().select_related('created_by').order_by('-created_at')
         if user_role == 'hod':
+            user_branches = get_user_branches(request.user)
             queryset = queryset.filter(branch__in=user_branches)
         
         grants = []
-        for g in queryset[:60]:
+        for g in queryset[:100]:
             grants.append({
                 'id': g.id,
                 'grant_token': g.grant_token,
@@ -1611,10 +1633,10 @@ def admin_list_access_grants(request):
                 'year': g.year,
                 'semester': g.semester,
                 'section': g.section,
-                'created_at': g.created_at.isoformat() if g.created_at else None,
-                'expires_at': g.expires_at.isoformat() if g.expires_at else None,
-                'is_active': True,
-                'is_expired': False,
+                'created_at': format_iso_ist(g.created_at),
+                'expires_at': format_iso_ist(g.expires_at),
+                'is_active': g.is_active,
+                'is_expired': g.is_expired(),
                 'max_responses': g.max_responses,
                 'response_count': g.response_count,
                 'created_by': g.created_by.username if g.created_by else 'Admin'
@@ -1632,43 +1654,38 @@ def admin_list_access_grants(request):
 @require_POST
 @jwt_hod_or_admin_required
 def admin_toggle_access_grant(request, grant_id):
-    """Revoke and delete an Access Grant from table"""
+    """Toggle active status of an Access Grant"""
     try:
         user_role = getattr(request.user, 'role', 'admin')
-        user_branches = getattr(request.user, 'branches', []) or []
         
         try:
             grant = AccessGrant.objects.get(pk=grant_id)
         except AccessGrant.DoesNotExist:
             return JsonResponse({'status': 'error', 'error': 'Access grant not found'}, status=404)
             
-        if user_role == 'hod' and grant.branch not in user_branches:
-            return JsonResponse({'status': 'error', 'error': 'Unauthorized branch for this grant'}, status=403)
+        if user_role == 'hod':
+            user_branches = get_user_branches(request.user)
+            if grant.branch not in user_branches:
+                return JsonResponse({'status': 'error', 'error': 'Access denied for this branch'}, status=403)
             
         payload = {}
         if request.body:
             try:
                 payload = json.loads(request.body)
-            except:
+            except Exception:
                 pass
                 
-        # If explicitly revoking or toggling off active grant, delete it directly
-        if payload.get('is_active') is False or grant.is_active:
-            grant.delete()
-            return JsonResponse({
-                'status': 'ok',
-                'message': 'Access revoked and record deleted from table',
-                'deleted': True,
-                'is_active': False
-            })
+        if 'is_active' in payload:
+            grant.is_active = bool(payload['is_active'])
+        else:
+            grant.is_active = not grant.is_active
             
-        grant.is_active = True
         grant.save(update_fields=['is_active'])
         
         return JsonResponse({
             'status': 'ok',
             'message': 'Grant status updated',
-            'is_active': True
+            'is_active': grant.is_active
         })
     except Exception as e:
         return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
@@ -1681,15 +1698,16 @@ def admin_delete_access_grant(request, grant_id):
     """Delete an Access Grant record"""
     try:
         user_role = getattr(request.user, 'role', 'admin')
-        user_branches = getattr(request.user, 'branches', []) or []
         
         try:
             grant = AccessGrant.objects.get(pk=grant_id)
         except AccessGrant.DoesNotExist:
             return JsonResponse({'status': 'error', 'error': 'Access grant not found'}, status=404)
             
-        if user_role == 'hod' and grant.branch not in user_branches:
-            return JsonResponse({'status': 'error', 'error': 'Unauthorized branch for this grant'}, status=403)
+        if user_role == 'hod':
+            user_branches = get_user_branches(request.user)
+            if grant.branch not in user_branches:
+                return JsonResponse({'status': 'error', 'error': 'Access denied for this branch'}, status=403)
             
         grant.delete()
         return JsonResponse({'status': 'ok', 'message': 'Access grant deleted successfully'})
