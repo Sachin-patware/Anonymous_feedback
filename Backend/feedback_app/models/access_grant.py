@@ -1,7 +1,7 @@
+from datetime import timedelta
 import secrets
 from django.db import models
 from django.utils import timezone
-from datetime import datetime, timedelta
 from django.core.validators import MinValueValidator
 
 
@@ -68,12 +68,10 @@ class AccessGrant(models.Model):
         super().save(*args, **kwargs)
 
     def is_expired(self) -> bool:
-        """Check if the grant has passed its 15-minute expiration timestamp."""
+        """Check if the grant has passed its expiration timestamp."""
         if not self.expires_at:
             return True
-        # Compare in consistent UTC time
-        current_time = datetime.now(timezone.utc).replace(tzinfo=None) if timezone.is_aware(self.expires_at) else datetime.utcnow()
-        return current_time > self.expires_at
+        return timezone.now() > self.expires_at
 
     def is_limit_reached(self) -> bool:
         """Check if the response limit has been reached."""

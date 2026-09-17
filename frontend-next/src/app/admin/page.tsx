@@ -74,6 +74,25 @@ const formatDurationLabel = (minsStr: string) => {
     return `${hours}h ${rem}m`;
 };
 
+const formatDateTime = (dateStr: string | null | undefined) => {
+    if (!dateStr) return 'N/A';
+    try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        }) + ', ' + d.toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+    } catch {
+        return dateStr;
+    }
+};
+
 const MASKED_PASSWORD_VALUE = '********';
 
 // ─── Month helpers ────────────────────────────────────────────────────────────
@@ -127,12 +146,19 @@ const AcademicSessionInput = ({
     const [year,      setYear]      = React.useState(parsed.year      || String(new Date().getFullYear()));
     const [error,     setError]     = React.useState('');
 
-    // Sync internal state when external value changes (e.g. when editing an existing row)
+    // Sync internal state when external value changes and propagate initial default if value is empty
     React.useEffect(() => {
-        const p = parseSessionString(value || '');
-        if (p.startFull) setStartFull(p.startFull);
-        if (p.endFull)   setEndFull(p.endFull);
-        if (p.year)      setYear(p.year);
+        if (!value) {
+            const defaultStr = buildSessionString(startFull, endFull, year);
+            if (MONTHS_FULL.indexOf(startFull) < MONTHS_FULL.indexOf(endFull)) {
+                onChange(defaultStr);
+            }
+        } else {
+            const p = parseSessionString(value);
+            if (p.startFull) setStartFull(p.startFull);
+            if (p.endFull)   setEndFull(p.endFull);
+            if (p.year)      setYear(p.year);
+        }
     }, [value]);
 
     const commit = (sf: string, ef: string, yr: string) => {
@@ -140,7 +166,6 @@ const AcademicSessionInput = ({
         const endIdx   = MONTHS_FULL.indexOf(ef);
         if (startIdx >= endIdx) {
             setError('End month must be after the start month.');
-            // Still write partial so user can see it; don't propagate
             return;
         }
         setError('');
@@ -789,6 +814,7 @@ export default function AdminDashboard() {
     const [accessGrants, setAccessGrants] = useState<AccessGrantItem[]>([]);
     const [isLoadingGrants, setIsLoadingGrants] = useState(false);
     const [grantsSearchQuery, setGrantsSearchQuery] = useState('');
+    const [grantStatusFilter, setGrantStatusFilter] = useState<'all' | 'active' | 'expired'>('all');
     const [selectedGrantForQr, setSelectedGrantForQr] = useState<AccessGrantItem | null>(null);
 
     // Advanced Link Gen & Policy Settings
@@ -954,26 +980,21 @@ export default function AdminDashboard() {
         }
     };
 
-    const revokeGrant = async (grantId: number) => {
-        if (!confirm("Are you sure you want to revoke this student access link? Submissions will stop immediately and the record will be removed.")) return;
+    const toggleGrantActive = async (grantId: number) => {
         try {
-            const res = await apiFetch(`/dashboard-admin/access-grants/${grantId}/delete/`, {
+            const res = await apiFetch(`/dashboard-admin/access-grants/${grantId}/toggle/`, {
                 method: 'POST'
             });
             const data = await res.json();
             if (data.status === 'ok') {
-                showToast("Access revoked and grant record deleted successfully", "info");
+                showToast(data.is_active ? "Feedback link activated!" : "Feedback link deactivated!", "info");
                 fetchAccessGrants();
             } else {
-                showToast(data.error || "Failed to revoke grant", "error");
+                showToast(data.error || "Failed to update grant", "error");
             }
         } catch {
-            showToast("Network error revoking grant", "error");
+            showToast("Network error updating grant", "error");
         }
-    };
-
-    const toggleGrantActive = async (grantId: number) => {
-        return revokeGrant(grantId);
     };
 
     const deleteGrant = async (grantId: number) => {
@@ -1418,28 +1439,31 @@ export default function AdminDashboard() {
                                     <Shield size={20} />
                                 </div>
                                 <div>
-                                    <div className="flex items-center gap-2">
-                                        <h2 className="font-bold text-slate-800 text-base">Active Feedback Grants</h2>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <h2 className="font-bold text-slate-800 text-base">Feedback Access Grants</h2>
                                         <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs font-black rounded-full border border-emerald-200">
-                                            {accessGrants.filter(g => g.is_active && !g.is_expired && (!g.expires_at || new Date(g.expires_at).getTime() > Date.now())).length} Live
+                                            {accessGrants.filter(g => g.is_active && !g.is_expired).length} Live
+                                        </span>
+                                        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs font-black rounded-full border border-amber-200">
+                                            {accessGrants.filter(g => g.is_expired || !g.is_active).length} Expired
                                         </span>
                                     </div>
-                                    <p className="text-xs text-slate-500">Manage live access links, monitor submissions &amp; revoke access</p>
+                                    <p className="text-xs text-slate-500">Manage student access links, monitor submissions &amp; view history</p>
                                 </div>
                             </div>
                             <button
                                 onClick={fetchAccessGrants}
                                 disabled={isLoadingGrants}
-                                className="p-2.5 bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                                className="p-2.5 bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
                                 title="Refresh Grants"
                             >
                                 <RefreshCw size={16} className={cn(isLoadingGrants && "animate-spin text-indigo-600")} />
                             </button>
                         </div>
 
-                        {/* Search & Stats Bar */}
-                        <div className="p-4 border-b border-slate-100 bg-slate-50/60 flex items-center gap-3">
-                            <div className="relative flex-1">
+                        {/* Search & Filter Tabs Bar */}
+                        <div className="p-3 border-b border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row items-center gap-3">
+                            <div className="relative flex-1 w-full">
                                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
                                     type="text"
@@ -1457,9 +1481,36 @@ export default function AdminDashboard() {
                                     </button>
                                 )}
                             </div>
-                            <span className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
-                                Total: <strong className="text-slate-700">{accessGrants.filter(g => g.is_active && !g.is_expired && (!g.expires_at || new Date(g.expires_at).getTime() > Date.now())).length}</strong>
-                            </span>
+                            
+                            {/* Filter Chips */}
+                            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shrink-0">
+                                {(
+                                    [
+                                        { id: 'all', label: 'All', count: accessGrants.length },
+                                        { id: 'active', label: 'Active', count: accessGrants.filter(g => g.is_active && !g.is_expired).length },
+                                        { id: 'expired', label: 'Expired', count: accessGrants.filter(g => g.is_expired || !g.is_active).length }
+                                    ] as const
+                                ).map(tab => (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setGrantStatusFilter(tab.id)}
+                                        className={cn(
+                                            "px-2.5 py-1 text-[11px] font-extrabold rounded-lg transition-all flex items-center gap-1",
+                                            grantStatusFilter === tab.id
+                                                ? "bg-indigo-600 text-white shadow-sm"
+                                                : "text-slate-600 hover:bg-slate-100"
+                                        )}
+                                    >
+                                        <span>{tab.label}</span>
+                                        <span className={cn(
+                                            "text-[10px] px-1.5 py-0.2 rounded-full",
+                                            grantStatusFilter === tab.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                                        )}>
+                                            {tab.count}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         {/* Grants List Content */}
@@ -1470,16 +1521,13 @@ export default function AdminDashboard() {
                                     <p className="text-xs font-medium">Loading feedback grants...</p>
                                 </div>
                             ) : (() => {
-                                const validActiveGrants = accessGrants.filter(g => {
-                                    if (!g.is_active || g.is_expired) return false;
-                                    if (g.expires_at) {
-                                        const expTime = new Date(g.expires_at).getTime();
-                                        if (!isNaN(expTime) && expTime <= Date.now()) return false;
-                                    }
+                                const tabFiltered = accessGrants.filter(g => {
+                                    if (grantStatusFilter === 'active') return g.is_active && !g.is_expired;
+                                    if (grantStatusFilter === 'expired') return g.is_expired || !g.is_active;
                                     return true;
                                 });
 
-                                const filtered = validActiveGrants.filter(g => {
+                                const filtered = tabFiltered.filter(g => {
                                     if (!grantsSearchQuery) return true;
                                     const q = grantsSearchQuery.toLowerCase();
                                     return (
@@ -1498,10 +1546,10 @@ export default function AdminDashboard() {
                                                 <Link size={24} />
                                             </div>
                                             <h4 className="font-bold text-slate-800 text-sm mb-1">
-                                                {grantsSearchQuery ? "No matching active feedback links found" : "No Active Feedback Links"}
+                                                {grantsSearchQuery ? "No matching feedback links found" : "No Feedback Grants Available"}
                                             </h4>
                                             <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-                                                {grantsSearchQuery ? "Try a different search term or clear the filter." : "Expired and revoked links are automatically removed. Use the Link & QR Builder on the right to create a new session."}
+                                                {grantsSearchQuery ? "Try a different search term or clear the filter." : "Use the Link & QR Builder on the right to create secure student feedback links."}
                                             </p>
                                         </div>
                                     );
@@ -1513,21 +1561,41 @@ export default function AdminDashboard() {
                                     const isLimitReached = grant.response_count >= grant.max_responses;
                                     const percent = Math.min(100, Math.round((grant.response_count / grant.max_responses) * 100));
 
-                                    const statusPill = isLimitReached ? (
-                                        <span className="px-2.5 py-0.5 bg-purple-50 text-purple-600 border border-purple-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider">
-                                            Limit Full
-                                        </span>
-                                    ) : (
-                                        <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider flex items-center gap-1.5">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                            Live Active
-                                        </span>
-                                    );
+                                    let statusPill = null;
+                                    if (!grant.is_active) {
+                                        statusPill = (
+                                            <span className="px-2.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider">
+                                                Deactivated
+                                            </span>
+                                        );
+                                    } else if (grant.is_expired) {
+                                        statusPill = (
+                                            <span className="px-2.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider">
+                                                Expired
+                                            </span>
+                                        );
+                                    } else if (isLimitReached) {
+                                        statusPill = (
+                                            <span className="px-2.5 py-0.5 bg-purple-50 text-purple-600 border border-purple-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider">
+                                                Limit Full
+                                            </span>
+                                        );
+                                    } else {
+                                        statusPill = (
+                                            <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                Live Active
+                                            </span>
+                                        );
+                                    }
 
                                     return (
                                         <div
                                             key={grant.id}
-                                            className="p-4 rounded-2xl border border-slate-200 hover:border-indigo-200 transition-all duration-200 bg-white hover:shadow-md"
+                                            className={cn(
+                                                "p-4 rounded-2xl border transition-all duration-200 bg-white hover:shadow-md",
+                                                !grant.is_active ? "border-slate-200 opacity-70 bg-slate-50/50" : grant.is_expired ? "border-amber-200/60 bg-amber-50/20" : "border-slate-200 hover:border-indigo-200"
+                                            )}
                                         >
                                             {/* Top Line: Badges & Status */}
                                             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -1560,12 +1628,21 @@ export default function AdminDashboard() {
                                                         style={{ width: `${percent}%` }}
                                                     />
                                                 </div>
-                                                <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium pt-0.5">
-                                                    <span>Created by: {grant.created_by}</span>
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-slate-500 font-medium pt-1.5 border-t border-slate-100">
+                                                    <span className="flex items-center gap-1 text-slate-600">
+                                                        <Calendar size={12} className="text-slate-400 shrink-0" />
+                                                        Created: <strong className="text-slate-800 font-bold">{formatDateTime(grant.created_at)}</strong> <span className="text-slate-400">by {grant.created_by}</span>
+                                                    </span>
                                                     {grant.expires_at && (
-                                                        <span className="flex items-center gap-1">
-                                                            <Clock size={10} />
-                                                            {grant.is_expired ? "Expired at" : "Valid until"}: {new Date(grant.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        <span className={cn(
+                                                            "flex items-center gap-1 font-semibold",
+                                                            grant.is_expired ? "text-amber-600" : "text-emerald-600"
+                                                        )}>
+                                                            <Clock size={12} className="shrink-0" />
+                                                            {grant.is_expired ? "Expired at:" : "Valid until:"}{" "}
+                                                            <strong className={cn("font-bold", grant.is_expired ? "text-amber-700" : "text-emerald-700")}>
+                                                                {formatDateTime(grant.expires_at)}
+                                                            </strong>
                                                         </span>
                                                     )}
                                                 </div>
@@ -1590,11 +1667,16 @@ export default function AdminDashboard() {
                                                     <QrCode size={13} /> QR Code
                                                 </button>
                                                 <button
-                                                    onClick={() => revokeGrant(grant.id)}
-                                                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl transition-all"
-                                                    title="Revoke access and remove grant immediately"
+                                                    onClick={() => toggleGrantActive(grant.id)}
+                                                    className={cn(
+                                                        "flex items-center justify-center gap-1.5 px-3 py-1.5 font-bold text-xs rounded-xl transition-all",
+                                                        grant.is_active
+                                                            ? "bg-rose-50 hover:bg-rose-100 text-rose-600"
+                                                            : "bg-emerald-50 hover:bg-emerald-100 text-emerald-600"
+                                                    )}
+                                                    title={grant.is_active ? "Deactivate link" : "Activate link"}
                                                 >
-                                                    <Power size={13} /> Revoke
+                                                    <Power size={13} /> {grant.is_active ? "Revoke" : "Activate"}
                                                 </button>
                                                 <button
                                                     onClick={() => deleteGrant(grant.id)}
@@ -1982,9 +2064,16 @@ export default function AdminDashboard() {
                                     />
                                 </div>
 
-                                <div className="text-center bg-slate-50 p-2.5 rounded-xl w-full text-xs font-medium text-slate-600">
-                                    <p>{selectedGrantForQr.session}</p>
-                                    <p className="text-[11px] text-slate-400">Submissions: {selectedGrantForQr.response_count} / {selectedGrantForQr.max_responses}</p>
+                                <div className="text-center bg-slate-50 p-2.5 rounded-xl w-full text-xs font-medium text-slate-600 space-y-1">
+                                    <p className="font-bold text-slate-800">{selectedGrantForQr.session}</p>
+                                    <p className="text-[11px] text-slate-500">Submissions: {selectedGrantForQr.response_count} / {selectedGrantForQr.max_responses}</p>
+                                    <div className="text-[10px] text-slate-400 flex flex-col items-center gap-0.5 pt-1 border-t border-slate-200/60">
+                                        <span>Created: {formatDateTime(selectedGrantForQr.created_at)}</span>
+                                        <span className={selectedGrantForQr.is_expired ? "text-amber-600 font-semibold" : "text-emerald-600 font-semibold"}>
+                                            {selectedGrantForQr.is_expired ? "Expired at: " : "Valid until: "}
+                                            {formatDateTime(selectedGrantForQr.expires_at)}
+                                        </span>
+                                    </div>
                                 </div>
 
                                 <div className="flex gap-2 w-full">
@@ -2148,7 +2237,16 @@ export default function AdminDashboard() {
                                                 <button
                                                     onClick={() => {
                                                         setEditingRow(null);
-                                                        setNewRowData({});
+                                                        const initialData: Record<string, any> = {};
+                                                        if (tableData) {
+                                                            tableData.fields.forEach(f => {
+                                                                const meta = tableData.field_meta?.[f];
+                                                                if (meta?.type === 'academicsession' || f.toLowerCase() === 'session') {
+                                                                    initialData[f] = `Jun-Dec ${new Date().getFullYear()}`;
+                                                                }
+                                                            });
+                                                        }
+                                                        setNewRowData(initialData);
                                                         setAddModalOpen(true);
                                                     }}
                                                     className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95"
