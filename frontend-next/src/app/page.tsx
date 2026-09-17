@@ -162,9 +162,12 @@ function LoginContent() {
 
   const [mounted, setMounted] = useState(false);
   const searchParams = useSearchParams();
+  // URL Pre-set & Access Token Parameters
+  const [grantLocked, setGrantLocked] = useState(false);
+  const [accessValid, setAccessValid] = useState(false);
+  const accessFromUrl = searchParams.get('access') || '';
   const tokenFromUrl = searchParams.get('token') || '';
 
-  // URL Pre-set Parameters
   const sessionFromUrl = searchParams.get('session');
   const branchFromUrl = searchParams.get('branch');
   const yearFromUrl = searchParams.get('year');
@@ -177,16 +180,40 @@ function LoginContent() {
   useEffect(() => {
     setMounted(true);
 
-    if (tokenFromUrl || searchParams.get('admin') === 'true') {
+    if (accessFromUrl || tokenFromUrl || searchParams.get('admin') === 'true') {
       setShowLogin(true);
     }
 
-    // Auto-fill from URL if present
-    if (sessionFromUrl) setSession(sessionFromUrl);
-    if (branchFromUrl) setBranch(branchFromUrl);
-    if (yearFromUrl) setYear(yearFromUrl);
-    if (semesterFromUrl) setSemester(semesterFromUrl);
-    if (sectionFromUrl) setSection(sectionFromUrl);
+    // Resolve Opaque Access Link if provided
+    if (accessFromUrl) {
+      apiFetch(`/feedback-access/?access=${encodeURIComponent(accessFromUrl)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'ok') {
+            if (data.session) setSession(data.session);
+            if (data.branch) setBranch(data.branch);
+            if (data.year) setYear(data.year.toString());
+            if (data.semester) setSemester(data.semester.toString());
+            if (data.section) setSection(data.section.toString());
+            setGrantLocked(true);
+            setAccessValid(true);
+          } else {
+            setGrantLocked(false);
+            setAccessValid(false);
+            showToast(data.error || "Invalid or expired feedback access link", "error");
+          }
+        })
+        .catch(() => {
+          showToast("Failed to verify access link. Is backend running?", "error");
+        });
+    } else {
+      // Auto-fill from URL if present (legacy)
+      if (sessionFromUrl) setSession(sessionFromUrl);
+      if (branchFromUrl) setBranch(branchFromUrl);
+      if (yearFromUrl) setYear(yearFromUrl);
+      if (semesterFromUrl) setSemester(semesterFromUrl);
+      if (sectionFromUrl) setSection(sectionFromUrl);
+    }
 
     // Persistent Student ID (Fingerprint) with 15-minute expiry
     if (typeof window !== 'undefined') {
@@ -204,7 +231,7 @@ function LoginContent() {
       }
       setFingerprint(stuId);
     }
-  }, []);
+  }, [accessFromUrl]);
 
   const [toast, setToast] = useState<{ msg: string; type: ToastType; visible: boolean }>({
     msg: '',
@@ -263,9 +290,8 @@ function LoginContent() {
     }
 
     // Student login
-    const sigFromUrl = searchParams.get('sig') || '';
-    if (!tokenFromUrl || !sigFromUrl) {
-      showToast("Please use the complete authorized signed feedback link provided to you.", "error");
+    if (!accessFromUrl) {
+      showToast("Please use the authorized feedback link provided to you.", "error");
       return;
     }
 
@@ -278,13 +304,12 @@ function LoginContent() {
       const res = await apiFetch('/login/', {
         method: "POST",
         body: JSON.stringify({
+          access: accessFromUrl,
           session,
           branch,
           year: parseInt(year),
           semester: parseInt(semester),
           section: parseInt(section),
-          token: tokenFromUrl,
-          sig: searchParams.get('sig') || '',
           fingerprint: fingerprint
         }),
       });
@@ -522,8 +547,8 @@ function LoginContent() {
 
                 <div className="mb-6 sm:mb-8 text-center">
                   <h2 className="text-2xl sm:text-3xl font-bold text-white mb-1 sm:mb-2">Welcome Login</h2>
-                  {role === 'student' && (!tokenFromUrl || !searchParams.get('sig')) ? (
-                    <p className="text-red-400 text-xs sm:text-sm font-medium">Signed access link required. Please use the link provided by admin.</p>
+                  {role === 'student' && !accessFromUrl ? (
+                    <p className="text-red-400 text-xs sm:text-sm font-medium">Authorized feedback link required. Please use the link provided by faculty/admin.</p>
                   ) : (
                     <p className="text-slate-400 text-xs sm:text-sm">Sign in to share your valuable feedback</p>
                   )}
@@ -574,13 +599,13 @@ function LoginContent() {
                             <LoginSessionSelector
                               value={session}
                               onChange={setSession}
-                              locked={!!sessionFromUrl}
+                              locked={grantLocked || !!sessionFromUrl}
                             />
                           </div>
                           <div className="grid grid-cols-2 gap-3 sm:gap-4">
                             <div className="space-y-1.5">
                               <label className="text-xs sm:text-sm font-semibold text-slate-300 ml-1">Branch</label>
-                              <Select value={branch} onValueChange={setBranch} disabled={!!branchFromUrl}>
+                              <Select value={branch} onValueChange={setBranch} disabled={grantLocked || !!branchFromUrl}>
                                 <SelectTrigger className="bg-white/5 border-white/12 text-white focus:ring-blue-500/50 text-xs sm:text-sm h-10 sm:h-11">
                                   <SelectValue placeholder="Branch" />
                                 </SelectTrigger>
@@ -602,7 +627,7 @@ function LoginContent() {
                             </div>
                             <div className="space-y-1.5">
                               <label className="text-xs sm:text-sm font-semibold text-slate-300 ml-1">Year</label>
-                              <Select value={year} onValueChange={handleYearChange} disabled={!!yearFromUrl}>
+                              <Select value={year} onValueChange={handleYearChange} disabled={grantLocked || !!yearFromUrl}>
                                 <SelectTrigger className="bg-white/5 border-white/10 text-white focus:ring-blue-500/50 text-xs sm:text-sm h-10 sm:h-11">
                                   <SelectValue placeholder="Year" />
                                 </SelectTrigger>
@@ -619,7 +644,7 @@ function LoginContent() {
                           <div className="grid grid-cols-2 gap-3 sm:gap-4">
                             <div className="space-y-1.5">
                               <label className="text-xs sm:text-sm font-semibold text-slate-300 ml-1">Semester</label>
-                              <Select value={semester} onValueChange={handleSemesterChange} disabled={!!semesterFromUrl}>
+                              <Select value={semester} onValueChange={handleSemesterChange} disabled={grantLocked || !!semesterFromUrl}>
                                 <SelectTrigger className="bg-white/5 border-white/10 text-white focus:ring-blue-500/50 text-xs sm:text-sm h-10 sm:h-11">
                                   <SelectValue placeholder="Semester" />
                                 </SelectTrigger>
@@ -632,7 +657,7 @@ function LoginContent() {
                             </div>
                             <div className="space-y-1.5">
                               <label className="text-xs sm:text-sm font-semibold text-slate-300 ml-1">Section</label>
-                              <Select value={section} onValueChange={setSection} disabled={!!sectionFromUrl}>
+                              <Select value={section} onValueChange={setSection} disabled={grantLocked || !!sectionFromUrl}>
                                 <SelectTrigger className="bg-white/5 border-white/10 text-white focus:ring-blue-500/50 text-xs sm:text-sm h-10 sm:h-11">
                                   <SelectValue placeholder="Section" />
                                 </SelectTrigger>

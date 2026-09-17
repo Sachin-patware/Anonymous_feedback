@@ -1,7 +1,7 @@
 "use client"
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Database, Loader2, AlertCircle, Edit, Trash2, ChevronLeft, ChevronRight, Search, X, Save, ArrowUpDown, ArrowUp, ArrowDown, Copy, RefreshCw, Key, Link, BarChart3, TableProperties, Plus, Shield, User, BookText, Briefcase, Calendar, School, Hash, GraduationCap, ClipboardEdit, Eye, EyeOff, Lock, ShieldCheck, Download } from 'lucide-react';
+import { Database, Loader2, AlertCircle, Edit, Trash2, ChevronLeft, ChevronRight, Search, X, Save, ArrowUpDown, ArrowUp, ArrowDown, Copy, RefreshCw, Key, Link, BarChart3, TableProperties, Plus, Minus, Shield, User, BookText, Briefcase, Calendar, School, Hash, GraduationCap, ClipboardEdit, Eye, EyeOff, Lock, ShieldCheck, Download, CheckCircle2, Clock, Users, Ban, Power, ExternalLink, QrCode, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import API_BASE_URL from '@/config';
 import { apiFetch } from '@/lib/api';
@@ -17,6 +17,24 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/Select";
+
+export interface AccessGrantItem {
+    id: number;
+    grant_token: string;
+    access: string;
+    session: string;
+    branch: string;
+    year: number;
+    semester: number;
+    section: number;
+    created_at: string | null;
+    expires_at: string | null;
+    is_active: boolean;
+    is_expired: boolean;
+    max_responses: number;
+    response_count: number;
+    created_by: string;
+}
 
 interface Table {
     table_name: string;
@@ -44,6 +62,16 @@ const formatLabel = (label: string) => {
         .replace(/^./, (str) => str.toUpperCase())
         .trim()
         .replace(/\s+/g, ' ');
+};
+
+const formatDurationLabel = (minsStr: string) => {
+    const mins = parseInt(minsStr) || 0;
+    if (mins <= 0) return 'Custom Time';
+    if (mins < 60) return `${mins} Mins`;
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    if (rem === 0) return hours === 1 ? '1 Hour' : `${hours} Hours`;
+    return `${hours}h ${rem}m`;
 };
 
 const MASKED_PASSWORD_VALUE = '********';
@@ -757,19 +785,24 @@ export default function AdminDashboard() {
     const [filterTables, setFilterTables] = useState('');
     const [activeTab, setActiveTab] = useState<'access' | 'tables' | 'reports'>('tables');
 
-    // Access Token & Link Generator State
-    const [studentToken, setStudentToken] = useState('AITR0827');
-    const [isUpdatingToken, setIsUpdatingToken] = useState(false);
+    // Live Access Grants Management State
+    const [accessGrants, setAccessGrants] = useState<AccessGrantItem[]>([]);
+    const [isLoadingGrants, setIsLoadingGrants] = useState(false);
+    const [grantsSearchQuery, setGrantsSearchQuery] = useState('');
+    const [selectedGrantForQr, setSelectedGrantForQr] = useState<AccessGrantItem | null>(null);
 
-    // Advanced Link Gen
+    // Advanced Link Gen & Policy Settings
     const [genSession, setGenSession] = useState('Jun-Dec 2026');
     const [genBranch, setGenBranch] = useState('');
     const [genYear, setGenYear] = useState('');
     const [genSem, setGenSem] = useState('');
     const [genSection, setGenSection] = useState('');
+    const [genMaxResponses, setGenMaxResponses] = useState<string>('60');
+    const [genDuration, setGenDuration] = useState<string>('15');
     const [advancedLinkUrl, setAdvancedLinkUrl] = useState('');
     const [isGeneratingLink, setIsGeneratingLink] = useState(false);
     const qrRef = useRef<SVGSVGElement>(null);
+    const modalQrRef = useRef<SVGSVGElement>(null);
 
     const YEAR_SEMESTER_MAP: Record<string, number[]> = {
         '1': [1, 2],
@@ -810,6 +843,21 @@ export default function AdminDashboard() {
     const [currentUserId, setCurrentUserId] = useState<string>('');
     const [currentUsername, setCurrentUsername] = useState<string>('');
 
+    const fetchAccessGrants = useCallback(async () => {
+        setIsLoadingGrants(true);
+        try {
+            const res = await apiFetch('/dashboard-admin/access-grants/');
+            const data = await res.json();
+            if (data.status === 'ok') {
+                setAccessGrants(data.grants || []);
+            }
+        } catch (error) {
+            console.error("Failed to fetch access grants:", error);
+        } finally {
+            setIsLoadingGrants(false);
+        }
+    }, []);
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const token = localStorage.getItem('access_token');
@@ -832,17 +880,26 @@ export default function AdminDashboard() {
                     } catch { }
                 }
                 
-                
                 if (isFirstLogin === 'true') {
                     setShowFirstLoginModal(true);
                 } else {
                     fetchDateRanges();
                     fetchTables();
-                    fetchAccessToken();
+                    fetchAccessGrants();
                 }
             }
         }
-    }, [router]);
+    }, [router, fetchAccessGrants]);
+
+    useEffect(() => {
+        if (activeTab === 'access') {
+            fetchAccessGrants();
+            const interval = setInterval(() => {
+                fetchAccessGrants();
+            }, 10000);
+            return () => clearInterval(interval);
+        }
+    }, [activeTab, fetchAccessGrants]);
 
     const fetchDateRanges = async () => {
         try {
@@ -858,20 +915,6 @@ export default function AdminDashboard() {
 
     const showToast = (msg: string, type: ToastType) => {
         setToast({ msg, type, visible: true });
-    };
-
-
-
-    const fetchAccessToken = async () => {
-        try {
-            const res = await apiFetch('/dashboard-admin/access-token/');
-            const data = await res.json();
-            if (data.status === 'ok') {
-                setStudentToken(data.token);
-            }
-        } catch (error) {
-            console.error("Failed to fetch access token:", error);
-        }
     };
 
     const handleFirstLoginChangePassword = async (e: React.FormEvent) => {
@@ -900,7 +943,7 @@ export default function AdminDashboard() {
                 showToast("Password changed successfully!", "success");
                 fetchDateRanges();
                 fetchTables();
-                fetchAccessToken();
+                fetchAccessGrants();
             } else {
                 showToast(data.error || "Failed to change password", "error");
             }
@@ -911,42 +954,44 @@ export default function AdminDashboard() {
         }
     };
 
-    const updateAccessToken = async (newToken?: string) => {
-        const tokenToSet = newToken || studentToken;
-        if (!tokenToSet) return;
-
-        setIsUpdatingToken(true);
+    const revokeGrant = async (grantId: number) => {
+        if (!confirm("Are you sure you want to revoke this student access link? Submissions will stop immediately and the record will be removed.")) return;
         try {
-            const res = await apiFetch('/dashboard-admin/access-token/update/', {
-                method: 'POST',
-                body: JSON.stringify({ token: tokenToSet })
+            const res = await apiFetch(`/dashboard-admin/access-grants/${grantId}/delete/`, {
+                method: 'POST'
             });
             const data = await res.json();
             if (data.status === 'ok') {
-                setStudentToken(data.token);
-                showToast("Access token updated successfully", "success");
+                showToast("Access revoked and grant record deleted successfully", "info");
+                fetchAccessGrants();
             } else {
-                showToast(data.error || "Failed to update token", "error");
+                showToast(data.error || "Failed to revoke grant", "error");
             }
-        } catch (error) {
-            showToast("Server error updating token", "error");
-        } finally {
-            setIsUpdatingToken(false);
+        } catch {
+            showToast("Network error revoking grant", "error");
         }
     };
 
-    const generateRandomToken = () => {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        const randomStr = Array.from({ length: 8 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
-        setStudentToken(randomStr);
-        updateAccessToken(randomStr);
+    const toggleGrantActive = async (grantId: number) => {
+        return revokeGrant(grantId);
     };
 
-    const copyStudentLink = () => {
-        const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-        const link = `${baseUrl}/?token=${studentToken}`;
-        navigator.clipboard.writeText(link);
-        showToast("Student login link copied!", "info");
+    const deleteGrant = async (grantId: number) => {
+        if (!confirm("Are you sure you want to delete this access grant record?")) return;
+        try {
+            const res = await apiFetch(`/dashboard-admin/access-grants/${grantId}/delete/`, {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                showToast("Access grant deleted successfully", "info");
+                fetchAccessGrants();
+            } else {
+                showToast(data.error || "Failed to delete grant", "error");
+            }
+        } catch {
+            showToast("Network error deleting grant", "error");
+        }
     };
 
     const copyAdvancedLink = async () => {
@@ -961,38 +1006,38 @@ export default function AdminDashboard() {
             return;
         }
 
+        const maxResp = parseInt(genMaxResponses) || 60;
+        const durMins = parseInt(genDuration) || 15;
+
         setIsGeneratingLink(true);
         try {
-            const res = await apiFetch('/dashboard-admin/generate-signature/', {
+            const res = await apiFetch('/dashboard-admin/generate-access-grant/', {
                 method: 'POST',
                 body: JSON.stringify({
                     session: genSession,
                     branch: genBranch,
-                    year: genYear,
-                    semester: genSem,
-                    section: genSection
+                    year: parseInt(genYear),
+                    semester: parseInt(genSem),
+                    section: parseInt(genSection),
+                    max_responses: maxResp,
+                    duration_minutes: durMins
                 })
             });
             const data = await res.json();
 
             if (data.status === 'ok') {
                 const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-                let link = `${baseUrl}/?token=${studentToken}`;
-                link += `&session=${encodeURIComponent(genSession)}`;
-                link += `&branch=${encodeURIComponent(genBranch)}`;
-                link += `&year=${genYear}`;
-                link += `&semester=${genSem}`;
-                link += `&section=${genSection}`;
-                link += `&sig=${data.signature}`;
+                const link = `${baseUrl}/?access=${encodeURIComponent(data.access)}`;
 
                 navigator.clipboard.writeText(link);
                 setAdvancedLinkUrl(link);
-                showToast("Signed advanced link copied! QR code generated below.", "success");
+                showToast("Secure feedback link generated & copied! QR code generated below.", "success");
+                fetchAccessGrants();
             } else {
-                showToast(data.error || "Failed to generate signature", "error");
+                showToast(data.error || "Failed to generate access link", "error");
             }
         } catch (error) {
-            showToast("Server error generating signature", "error");
+            showToast("Server error generating access link", "error");
         } finally {
             setIsGeneratingLink(false);
         }
@@ -1364,75 +1409,231 @@ export default function AdminDashboard() {
 
             {/* ── Access Control Tab ── */}
             {activeTab === 'access' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Student Access Token Card */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
-                        <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-violet-50/50 flex items-center gap-3">
-                            <div className="p-2 bg-indigo-100 rounded-xl">
-                                <Key size={18} className="text-indigo-600" />
-                            </div>
-                            <div>
-                                <h2 className="font-bold text-slate-800">Student Access Token</h2>
-                                <p className="text-xs text-slate-500">Manage the token students use to log in</p>
-                            </div>
-                        </div>
-                        <div className="p-6 space-y-5">
-                            <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Current Token</label>
-                                <div className="flex gap-3">
-                                            <div className="relative flex-1">
-                                                <input
-                                                    type="text"
-                                                    value={studentToken}
-                                                    onChange={(e) => setStudentToken(e.target.value)}
-                                                    disabled={userRole !== 'admin' && userRole !== 'hod'}
-                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all disabled:opacity-75 disabled:cursor-not-allowed"
-                                                />
-                                                {isUpdatingToken && <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400" />}
-                                            </div>
-                                            {(userRole === 'admin' || userRole === 'hod') && (
-                                                <button
-                                                    onClick={generateRandomToken}
-                                                    className="p-3 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all shadow-sm hover:shadow-md"
-                                                    title="Generate Random"
-                                                >
-                                                    <RefreshCw size={18} />
-                                                </button>
-                                            )}
-                                        </div>
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    {/* ── Left Column: Live Access Grants & Links Manager (7 cols on lg) ── */}
+                    <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                        <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-indigo-50/70 to-violet-50/50 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl shadow-sm">
+                                    <Shield size={20} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="font-bold text-slate-800 text-base">Active Feedback Grants</h2>
+                                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs font-black rounded-full border border-emerald-200">
+                                            {accessGrants.filter(g => g.is_active && !g.is_expired && (!g.expires_at || new Date(g.expires_at).getTime() > Date.now())).length} Live
+                                        </span>
                                     </div>
-                                    {(userRole === 'admin' || userRole === 'hod') && (
-                                        <button
-                                            onClick={() => updateAccessToken()}
-                                            disabled={isUpdatingToken}
-                                            className="w-full py-3 text-sm font-bold uppercase tracking-wider bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl hover:from-indigo-700 hover:to-indigo-800 shadow-lg shadow-indigo-200/50 transition-all active:scale-[0.98] disabled:opacity-50"
+                                    <p className="text-xs text-slate-500">Manage live access links, monitor submissions &amp; revoke access</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={fetchAccessGrants}
+                                disabled={isLoadingGrants}
+                                className="p-2.5 bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                                title="Refresh Grants"
+                            >
+                                <RefreshCw size={16} className={cn(isLoadingGrants && "animate-spin text-indigo-600")} />
+                            </button>
+                        </div>
+
+                        {/* Search & Stats Bar */}
+                        <div className="p-4 border-b border-slate-100 bg-slate-50/60 flex items-center gap-3">
+                            <div className="relative flex-1">
+                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Filter by branch, section, or session..."
+                                    value={grantsSearchQuery}
+                                    onChange={(e) => setGrantsSearchQuery(e.target.value)}
+                                    className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                                />
+                                {grantsSearchQuery && (
+                                    <button
+                                        onClick={() => setGrantsSearchQuery('')}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                                    >
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+                            <span className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+                                Total: <strong className="text-slate-700">{accessGrants.filter(g => g.is_active && !g.is_expired && (!g.expires_at || new Date(g.expires_at).getTime() > Date.now())).length}</strong>
+                            </span>
+                        </div>
+
+                        {/* Grants List Content */}
+                        <div className="p-4 space-y-3.5 overflow-y-auto max-h-[640px] custom-scrollbar flex-1">
+                            {isLoadingGrants && accessGrants.length === 0 ? (
+                                <div className="py-16 flex flex-col items-center justify-center text-slate-400 gap-3">
+                                    <Loader2 size={28} className="animate-spin text-indigo-600" />
+                                    <p className="text-xs font-medium">Loading feedback grants...</p>
+                                </div>
+                            ) : (() => {
+                                const validActiveGrants = accessGrants.filter(g => {
+                                    if (!g.is_active || g.is_expired) return false;
+                                    if (g.expires_at) {
+                                        const expTime = new Date(g.expires_at).getTime();
+                                        if (!isNaN(expTime) && expTime <= Date.now()) return false;
+                                    }
+                                    return true;
+                                });
+
+                                const filtered = validActiveGrants.filter(g => {
+                                    if (!grantsSearchQuery) return true;
+                                    const q = grantsSearchQuery.toLowerCase();
+                                    return (
+                                        g.branch.toLowerCase().includes(q) ||
+                                        g.session.toLowerCase().includes(q) ||
+                                        `sec ${g.section}`.includes(q) ||
+                                        `sem ${g.semester}`.includes(q) ||
+                                        `year ${g.year}`.includes(q)
+                                    );
+                                });
+
+                                if (filtered.length === 0) {
+                                    return (
+                                        <div className="py-16 flex flex-col items-center justify-center text-center p-6 border-2 border-dashed border-slate-200 rounded-2xl">
+                                            <div className="w-14 h-14 bg-indigo-50 text-indigo-500 rounded-2xl flex items-center justify-center mb-3">
+                                                <Link size={24} />
+                                            </div>
+                                            <h4 className="font-bold text-slate-800 text-sm mb-1">
+                                                {grantsSearchQuery ? "No matching active feedback links found" : "No Active Feedback Links"}
+                                            </h4>
+                                            <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+                                                {grantsSearchQuery ? "Try a different search term or clear the filter." : "Expired and revoked links are automatically removed. Use the Link & QR Builder on the right to create a new session."}
+                                            </p>
+                                        </div>
+                                    );
+                                }
+
+                                return filtered.map(grant => {
+                                    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+                                    const grantLink = `${baseUrl}/?access=${encodeURIComponent(grant.access)}`;
+                                    const isLimitReached = grant.response_count >= grant.max_responses;
+                                    const percent = Math.min(100, Math.round((grant.response_count / grant.max_responses) * 100));
+
+                                    const statusPill = isLimitReached ? (
+                                        <span className="px-2.5 py-0.5 bg-purple-50 text-purple-600 border border-purple-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider">
+                                            Limit Full
+                                        </span>
+                                    ) : (
+                                        <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-200/80 font-extrabold text-[10px] rounded-full uppercase tracking-wider flex items-center gap-1.5">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                            Live Active
+                                        </span>
+                                    );
+
+                                    return (
+                                        <div
+                                            key={grant.id}
+                                            className="p-4 rounded-2xl border border-slate-200 hover:border-indigo-200 transition-all duration-200 bg-white hover:shadow-md"
                                         >
-                                            {isUpdatingToken ? 'Saving...' : 'Save Token'}
-                                        </button>
-                                    )}
-                           
+                                            {/* Top Line: Badges & Status */}
+                                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-100/80 text-indigo-700 font-black rounded-lg text-xs tracking-tight">
+                                                        {grant.branch} · Y{grant.year} · Sem {grant.semester} · Sec {grant.section}
+                                                    </span>
+                                                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                                        {grant.session}
+                                                    </span>
+                                                </div>
+                                                {statusPill}
+                                            </div>
+
+                                            {/* Middle Line: Submissions Progress & Expiry Info */}
+                                            <div className="space-y-1.5 mb-3 bg-slate-50/80 p-3 rounded-xl border border-slate-100">
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <span className="font-bold text-slate-600 flex items-center gap-1.5">
+                                                        <Users size={13} className="text-indigo-500" />
+                                                        Submissions: <strong className="text-slate-900">{grant.response_count}</strong> / <span className="text-slate-500">{grant.max_responses}</span>
+                                                    </span>
+                                                    <span className="font-bold text-indigo-600 text-[11px]">{percent}%</span>
+                                                </div>
+                                                <div className="w-full bg-slate-200/80 rounded-full h-1.5 overflow-hidden">
+                                                    <div
+                                                        className={cn(
+                                                            "h-full rounded-full transition-all duration-500",
+                                                            isLimitReached ? "bg-purple-600" : percent > 80 ? "bg-amber-500" : "bg-gradient-to-r from-indigo-500 to-violet-500"
+                                                        )}
+                                                        style={{ width: `${percent}%` }}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium pt-0.5">
+                                                    <span>Created by: {grant.created_by}</span>
+                                                    {grant.expires_at && (
+                                                        <span className="flex items-center gap-1">
+                                                            <Clock size={10} />
+                                                            {grant.is_expired ? "Expired at" : "Valid until"}: {new Date(grant.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Bottom Line: Actions */}
+                                            <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(grantLink);
+                                                        showToast("Student feedback link copied to clipboard!", "success");
+                                                    }}
+                                                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                                                >
+                                                    <Copy size={13} /> Copy Link
+                                                </button>
+                                                <button
+                                                    onClick={() => setSelectedGrantForQr(grant)}
+                                                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-violet-50 hover:text-violet-600 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                                                    title="View QR Code"
+                                                >
+                                                    <QrCode size={13} /> QR Code
+                                                </button>
+                                                <button
+                                                    onClick={() => revokeGrant(grant.id)}
+                                                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl transition-all"
+                                                    title="Revoke access and remove grant immediately"
+                                                >
+                                                    <Power size={13} /> Revoke
+                                                </button>
+                                                <button
+                                                    onClick={() => deleteGrant(grant.id)}
+                                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                                    title="Delete grant record"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                });
+                            })()}
                         </div>
                     </div>
 
-                    {/* Advanced Link Builder Card */}
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-300">
+                    {/* ── Right Column: Link & QR Code Builder (5 cols on lg) ── */}
+                    <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                         <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-indigo-50/50 flex items-center gap-3">
-                            <div className="p-2 bg-violet-100 rounded-xl">
-                                <Link size={18} className="text-violet-600" />
+                            <div className="p-2.5 bg-violet-100 rounded-xl text-violet-600 shadow-sm">
+                                <Link size={20} />
                             </div>
                             <div>
-                                <h2 className="font-bold text-slate-800">Advanced Link Builder</h2>
-                                <p className="text-xs text-slate-500">Generate pre-filled student login links</p>
+                                <h2 className="font-bold text-slate-800 text-base">Link &amp; QR Code Builder</h2>
+                                <p className="text-xs text-slate-500">Create locked student access links with limits</p>
                             </div>
                         </div>
-                        <div className="p-6 space-y-5">
-                            <div className="space-y-1.5 mb-4">
+
+                        <div className="p-6 space-y-5 flex-1">
+                            {/* Academic Session */}
+                            <div className="space-y-1.5">
                                 <span className="text-[11px] font-black text-slate-400 ml-1 uppercase">Feedback Conducting Session</span>
                                 <AcademicSessionInput
                                     value={genSession}
                                     onChange={setGenSession}
                                 />
                             </div>
+
+                            {/* Branch & Year */}
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <span className="text-[11px] font-black text-slate-400 ml-1 uppercase">Branch</span>
@@ -1446,7 +1647,6 @@ export default function AdminDashboard() {
                                             ].filter(b => userRole === 'admin' || userBranches.includes(b)).map(b => (
                                                 <SelectItem key={b} value={b}>{b}</SelectItem>
                                             ))}
-
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1466,6 +1666,7 @@ export default function AdminDashboard() {
                                 </div>
                             </div>
 
+                            {/* Semester & Section */}
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <span className="text-[11px] font-black text-slate-400 ml-1 uppercase">Semester</span>
@@ -1495,35 +1696,213 @@ export default function AdminDashboard() {
                                 </div>
                             </div>
 
+                            {/* Max Responses Limit UI */}
+                            <div className="space-y-2.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                        <Users size={14} className="text-indigo-600" />
+                                        Max Feedback Responses
+                                    </span>
+                                    <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
+                                        {parseInt(genMaxResponses) > 0 ? `${genMaxResponses} Students` : 'Enter Limit'}
+                                    </span>
+                                </div>
+
+                                {/* Custom Counter & Input Control */}
+                                <div className="flex items-center rounded-xl bg-white border border-slate-200 shadow-sm p-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const cur = parseInt(genMaxResponses) || 60;
+                                            const step = cur > 10 ? (cur % 5 !== 0 ? cur % 5 : 5) : 1;
+                                            setGenMaxResponses(String(Math.max(1, cur - step)));
+                                        }}
+                                        className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 active:scale-95 transition-all"
+                                        title="Decrease responses"
+                                    >
+                                        <Minus size={16} className="stroke-[2.5]" />
+                                    </button>
+
+                                    <div className="flex-1 flex items-center justify-center px-2">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="9999"
+                                            value={genMaxResponses}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === '' || /^\d+$/.test(val)) {
+                                                    setGenMaxResponses(val);
+                                                }
+                                            }}
+                                            placeholder="e.g. 60"
+                                            className="w-full text-center text-sm font-black text-slate-800 bg-transparent outline-none focus:ring-0 placeholder:text-slate-300"
+                                        />
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const cur = parseInt(genMaxResponses) || 0;
+                                            const step = cur >= 10 && cur % 5 === 0 ? 5 : (cur < 10 ? 1 : 5 - (cur % 5));
+                                            setGenMaxResponses(String(Math.min(9999, cur + step)));
+                                        }}
+                                        className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 active:scale-95 transition-all"
+                                        title="Increase responses"
+                                    >
+                                        <Plus size={16} className="stroke-[2.5]" />
+                                    </button>
+                                </div>
+
+                                {/* Quick Presets Shortcut Chips */}
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Presets:</span>
+                                    </div>
+                                    <div className="grid grid-cols-6 gap-1">
+                                        {['30', '60', '75', '90', '120', '200'].map(preset => (
+                                            <button
+                                                key={preset}
+                                                type="button"
+                                                onClick={() => setGenMaxResponses(preset)}
+                                                className={cn(
+                                                    "py-1 text-[11px] font-bold rounded-lg border transition-all text-center",
+                                                    genMaxResponses === preset
+                                                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                                                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                                                )}
+                                            >
+                                                {preset}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-medium">Enter any custom number or use +/- counter. Submissions stop automatically when limit is reached.</p>
+                            </div>
+
+                            {/* Validity Duration UI */}
+                            <div className="space-y-2.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                                        <Clock size={14} className="text-violet-600" />
+                                        Link Expiration Time
+                                    </span>
+                                    <span className="text-xs font-black text-violet-600 bg-violet-50 px-2.5 py-0.5 rounded-full border border-violet-100">
+                                        {formatDurationLabel(genDuration)}
+                                    </span>
+                                </div>
+
+                                {/* Custom Duration Stepper & Input */}
+                                <div className="flex items-center rounded-xl bg-white border border-slate-200 shadow-sm p-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const cur = parseInt(genDuration) || 15;
+                                            const step = cur > 60 ? 15 : (cur > 15 ? 5 : 5);
+                                            setGenDuration(String(Math.max(1, cur - step)));
+                                        }}
+                                        className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-violet-50 text-slate-600 hover:text-violet-600 active:scale-95 transition-all"
+                                        title="Decrease time"
+                                    >
+                                        <Minus size={16} className="stroke-[2.5]" />
+                                    </button>
+
+                                    <div className="flex-1 flex items-center justify-center px-2">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="10080"
+                                            value={genDuration}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === '' || /^\d+$/.test(val)) {
+                                                    setGenDuration(val);
+                                                }
+                                            }}
+                                            placeholder="Minutes (e.g. 15)"
+                                            className="w-full text-center text-sm font-black text-slate-800 bg-transparent outline-none focus:ring-0 placeholder:text-slate-300"
+                                        />
+                                        <span className="text-xs font-bold text-slate-400 mr-2">mins</span>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const cur = parseInt(genDuration) || 0;
+                                            const step = cur >= 60 ? 15 : 5;
+                                            setGenDuration(String(Math.min(10080, cur + step)));
+                                        }}
+                                        className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-50 hover:bg-violet-50 text-slate-600 hover:text-violet-600 active:scale-95 transition-all"
+                                        title="Increase time"
+                                    >
+                                        <Plus size={16} className="stroke-[2.5]" />
+                                    </button>
+                                </div>
+
+                                {/* Quick Presets Shortcut Chips */}
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Presets:</span>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1">
+                                        {[
+                                            { val: '15', label: '15 Mins' },
+                                            { val: '30', label: '30 Mins' },
+                                            { val: '45', label: '45 Mins' },
+                                            { val: '60', label: '1 Hour' },
+                                            { val: '120', label: '2 Hours' },
+                                            { val: '240', label: '4 Hours' },
+                                            { val: '480', label: '8 Hours' },
+                                            { val: '1440', label: '24 Hours' },
+                                        ].map(item => (
+                                            <button
+                                                key={item.val}
+                                                type="button"
+                                                onClick={() => setGenDuration(item.val)}
+                                                className={cn(
+                                                    "py-1 text-[11px] font-bold rounded-lg border transition-all text-center",
+                                                    genDuration === item.val
+                                                        ? "bg-violet-600 text-white border-violet-600 shadow-sm"
+                                                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                                                )}
+                                            >
+                                                {item.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-medium">Link automatically expires and is removed from active grants once time is reached.</p>
+                            </div>
+
+                            {/* Generate Button */}
                             <button
                                 onClick={copyAdvancedLink}
                                 disabled={isGeneratingLink}
-                                className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold uppercase tracking-wider rounded-xl hover:from-violet-700 hover:to-indigo-700 shadow-lg shadow-violet-200/50 active:scale-[0.98] transition-all group disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer"
+                                className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold uppercase tracking-wider rounded-xl hover:from-violet-700 hover:to-indigo-700 shadow-lg shadow-violet-200/50 active:scale-[0.98] transition-all group disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                             >
                                 {isGeneratingLink ? (
                                     <>
                                         <Loader2 size={18} className="animate-spin" />
-                                        Generating...
+                                        Generating Secure Link...
                                     </>
                                 ) : (
                                     <>
-                                        <Copy size={18} className="group-hover:scale-110 transition-transform" />
+                                        <Sparkles size={18} className="group-hover:scale-110 transition-transform" />
                                         Generate Link &amp; QR Code
                                     </>
                                 )}
                             </button>
 
-                            {/* ── QR Code Panel ── */}
+                            {/* ── Generated QR Code Preview ── */}
                             {advancedLinkUrl && (
                                 <div className="mt-4 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-5 flex flex-col items-center gap-4 animate-in fade-in duration-300">
-                                    <p className="text-[11px] font-black text-violet-500 uppercase tracking-wider">Scan to Open Student Login</p>
+                                    <p className="text-[11px] font-black text-violet-600 uppercase tracking-wider">Latest Generated Student Link</p>
 
-                                    {/* QR Code */}
                                     <div className="p-3 bg-white rounded-2xl shadow-md border border-violet-100">
                                         <QRCodeSVG
                                             ref={qrRef}
                                             value={advancedLinkUrl}
-                                            size={180}
+                                            size={160}
                                             bgColor="#ffffff"
                                             fgColor="#4f46e5"
                                             level="M"
@@ -1531,19 +1910,17 @@ export default function AdminDashboard() {
                                         />
                                     </div>
 
-                                    {/* Session info badge */}
                                     <div className="text-center space-y-0.5">
-                                        <p className="text-xs font-extrabold text-slate-700">{genSession}</p>
-                                        <p className="text-[11px] text-slate-400 font-medium">
-                                            {genBranch} · Year {genYear} · Sem {genSem} · Sec {genSection}
+                                        <p className="text-xs font-extrabold text-slate-800">{genSession}</p>
+                                        <p className="text-[11px] text-slate-500 font-medium">
+                                            {genBranch} · Year {genYear} · Sem {genSem} · Sec {genSection} · Max {genMaxResponses} Submissions
                                         </p>
                                     </div>
 
-                                    {/* Action buttons */}
                                     <div className="flex gap-2 w-full">
                                         <button
-                                            onClick={() => { navigator.clipboard.writeText(advancedLinkUrl); showToast('Link copied!', 'info'); }}
-                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-violet-200 text-violet-700 text-xs font-bold rounded-xl hover:bg-violet-50 transition-all"
+                                            onClick={() => { navigator.clipboard.writeText(advancedLinkUrl); showToast('Feedback link copied!', 'success'); }}
+                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-violet-200 text-violet-700 text-xs font-bold rounded-xl hover:bg-violet-50 transition-all shadow-sm"
                                         >
                                             <Copy size={13} /> Copy Link
                                         </button>
@@ -1561,7 +1938,7 @@ export default function AdminDashboard() {
                                                 a.click();
                                                 URL.revokeObjectURL(url);
                                             }}
-                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 transition-all"
+                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl hover:bg-violet-700 transition-all shadow-sm"
                                         >
                                             <Download size={13} /> Download QR
                                         </button>
@@ -1570,6 +1947,79 @@ export default function AdminDashboard() {
                             )}
                         </div>
                     </div>
+
+                    {/* ── Grant QR Code Viewer Modal ── */}
+                    {selectedGrantForQr && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 flex flex-col items-center gap-4 relative"
+                            >
+                                <button
+                                    onClick={() => setSelectedGrantForQr(null)}
+                                    className="absolute top-4 right-4 p-2 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
+                                >
+                                    <X size={18} />
+                                </button>
+                                <div className="text-center pt-2">
+                                    <h3 className="font-black text-slate-900 text-lg">Student Access QR Code</h3>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        {selectedGrantForQr.branch} · Year {selectedGrantForQr.year} · Sem {selectedGrantForQr.semester} · Sec {selectedGrantForQr.section}
+                                    </p>
+                                </div>
+
+                                <div className="p-4 bg-white rounded-2xl shadow-md border border-slate-100">
+                                    <QRCodeSVG
+                                        ref={modalQrRef}
+                                        value={typeof window !== 'undefined' ? `${window.location.origin}/?access=${encodeURIComponent(selectedGrantForQr.access)}` : ''}
+                                        size={200}
+                                        bgColor="#ffffff"
+                                        fgColor="#4f46e5"
+                                        level="M"
+                                        includeMargin={false}
+                                    />
+                                </div>
+
+                                <div className="text-center bg-slate-50 p-2.5 rounded-xl w-full text-xs font-medium text-slate-600">
+                                    <p>{selectedGrantForQr.session}</p>
+                                    <p className="text-[11px] text-slate-400">Submissions: {selectedGrantForQr.response_count} / {selectedGrantForQr.max_responses}</p>
+                                </div>
+
+                                <div className="flex gap-2 w-full">
+                                    <button
+                                        onClick={() => {
+                                            const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+                                            navigator.clipboard.writeText(`${baseUrl}/?access=${encodeURIComponent(selectedGrantForQr.access)}`);
+                                            showToast("Feedback link copied!", "success");
+                                        }}
+                                        className="flex-1 py-2.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-600 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5"
+                                    >
+                                        <Copy size={14} /> Copy Link
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const svg = modalQrRef.current;
+                                            if (!svg) return;
+                                            const serializer = new XMLSerializer();
+                                            const svgStr = serializer.serializeToString(svg);
+                                            const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = `QR_${selectedGrantForQr.branch}_Y${selectedGrantForQr.year}S${selectedGrantForQr.semester}Sec${selectedGrantForQr.section}.svg`;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                        }}
+                                        className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md shadow-indigo-200"
+                                    >
+                                        <Download size={14} /> Download
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
                 </div>
             )}
 
