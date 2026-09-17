@@ -6,17 +6,63 @@ from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.core.signing import Signer, BadSignature
+from django.core import signing
+from django.utils import timezone
+from datetime import timedelta
 import json
 import random
 import string
 from feedback_app.serializers import LoginSerializer, FeedbackSerializer, AcademicSubjectSerializer, FacultyTeacherSerializer, AcademicAllocationSerializer, StaffUserSerializer
-from feedback_app.models import Feedback_Response, Feedback_SubmissionLog, Academic_Allocation, Faculty_Teacher
-from django.db.models import Avg, F, Count
+from feedback_app.models import Feedback_Response, Feedback_SubmissionLog, Academic_Allocation, Faculty_Teacher, AccessGrant
+from django.db.models import Avg, F, Count, Q
 from functools import wraps
 from feedback_app.auth import generate_jwt, jwt_required, jwt_admin_required, jwt_hod_or_admin_required
 from feedback_app.date_filters import validate_date_range, apply_feedback_date_filter, get_allowed_ranges
 
-# In-memory store for student access token (resets on server restart)
+ACCESS_GRANT_SALT = "student_feedback_access_grant_v1"
+
+def create_opaque_access_token(grant):
+    """
+    Generate an opaque, cryptographically signed token string hiding all parameters.
+    """
+    return signing.dumps({"t": grant.grant_token}, salt=ACCESS_GRANT_SALT)
+
+def resolve_grant_from_access_token(access_token_str):
+    """
+    Extract grant_token from opaque signed string and fetch AccessGrant from DB.
+    Validates signature, expiration, active status, and response limits.
+    Returns (grant, None, 200) on success, or (None, error_message, status_code) on failure.
+    """
+    if not access_token_str or not isinstance(access_token_str, str):
+        return None, "Missing access token.", 400
+    
+    try:
+        data = signing.loads(access_token_str, salt=ACCESS_GRANT_SALT)
+        grant_token = data.get("t")
+        if not grant_token:
+            return None, "Invalid access token payload.", 400
+    except Exception:
+        return None, "Invalid or tampered access link.", 403
+    
+    try:
+        grant = AccessGrant.objects.get(grant_token=grant_token)
+    except AccessGrant.DoesNotExist:
+        return None, "Access grant not found or revoked.", 404
+    
+    if not grant.is_active:
+        grant.delete()
+        return None, "This feedback link has been revoked and removed.", 403
+    
+    if grant.is_expired():
+        grant.delete()
+        return None, "Feedback link has expired and has been removed.", 403
+    
+    if grant.is_limit_reached():
+        return None, "Maximum feedback responses reached for this link.", 403
+        
+    return grant, None, 200
+
+# Legacy fallback token
 CURRENT_ACCESS_TOKEN = "AITR0827"
 
 
@@ -59,7 +105,6 @@ def apply_role_filters(user, queryset, model):
 @csrf_exempt
 @require_POST
 def login(request):
-    
     # robust body parsing
     content_type = request.META.get('CONTENT_TYPE', '') or request.META.get('HTTP_CONTENT_TYPE', '')
     raw_body = request.body or b''
@@ -74,7 +119,6 @@ def login(request):
         if 'application/json' in content_type:
             try_json = True
         else:
-            # if body looks like JSON even without proper header, attempt parse
             if s.startswith('{') or s.startswith('['):
                 try_json = True
 
@@ -84,73 +128,51 @@ def login(request):
             except Exception:
                 return JsonResponse({'status': 'error', 'error': 'invalid JSON'}, status=400)
         else:
-            # form / urlencoded / multipart parse via Django request.POST
             payload = request.POST.dict()
     else:
-        # No body: accept form-urlencoded (if client used GET) or query params
         payload = request.POST.dict() or request.GET.dict()
 
-    # normalize keys from various client names
-    session_raw = payload.get('session') or payload.get('AcademicSession')
-    branch_raw = payload.get('branch') or payload.get('Branch')
-    year_raw = payload.get('year') or payload.get('Year')
-    semester_raw = payload.get('semester') or payload.get('Semester')
-    section_raw = payload.get('section') or payload.get('Section')
-    token_provided = payload.get('token')
+    access_provided = payload.get('access') or request.GET.get('access')
     fingerprint = payload.get('fingerprint')
 
-    # ── Security Check 1: Verify Access Token ──────────────────────────────────
-    if not token_provided or token_provided != CURRENT_ACCESS_TOKEN:
-        return JsonResponse({'status': 'error', 'error': 'Invalid or missing access token. Please use the authorized feedback link provided to you.'}, status=403)
-
-    # ── Security Check 2: Mandatory Signature (Standalone token is NOT allowed) ─
-    sig = payload.get('sig')
-    if not sig:
+    # Standalone or manual login without valid access link is strictly prohibited
+    if not access_provided:
         return JsonResponse({
             'status': 'error',
-            'error': 'Missing security signature. Standalone token access is not permitted. Please use the complete signed feedback link provided to you.'
+            'error': 'Unauthorized access. A valid authorized feedback access link is required.'
         }, status=403)
 
-    # ── Security Check 3: Verify all required class parameters are provided ────
-    if not session_raw or not branch_raw or not year_raw or not semester_raw or not section_raw:
-        return JsonResponse({
-            'status': 'error',
-            'error': 'Missing required class parameters. Please use the complete signed feedback link provided to you.'
-        }, status=400)
+    # ── Security Check: Verify Access Grant ────────────────────────────────────
+    grant, err_msg, status_code = resolve_grant_from_access_token(access_provided)
+    if not grant:
+        return JsonResponse({'status': 'error', 'error': err_msg}, status=status_code)
 
-    # ── Security Check 4: Cryptographic Signature Verification ──────────────────
-    signer = Signer(sep=':')
-    try:
-        expected_data = f"{session_raw}|{branch_raw}|{year_raw}|{semester_raw}|{section_raw}"
-        signer.unsign(f"{expected_data}:{sig}")
-    except BadSignature:
-        return JsonResponse({
-            'status': 'error',
-            'error': 'Invalid or tampered feedback access link. Class parameters do not match the authorized signature.'
-        }, status=403)
+    # Auto-fill / verify class fields from the authorized grant
+    session = grant.session
+    branch = grant.branch
+    year = grant.year
+    semester = grant.semester
+    section = grant.section
 
-    # validate inputs via serializer (Django Form)
-    serializer = LoginSerializer(data={
-        'session': session_raw,
-        'branch': branch_raw,
-        'year': year_raw,
-        'semester': semester_raw,
-        'section': section_raw
-    })
-    
-    if not serializer.is_valid():
-        return JsonResponse({'status': 'error', 'errors': serializer.errors}, status=400)
+    # If client passed class parameters, ensure they match the authorized grant
+    client_branch = payload.get('branch') or payload.get('Branch')
+    client_year = payload.get('year') or payload.get('Year')
+    client_sem = payload.get('semester') or payload.get('Semester')
+    client_sec = payload.get('section') or payload.get('Section')
 
-    session = serializer.cleaned_data.get('session')
-    branch = serializer.cleaned_data.get('branch')
-    year = serializer.cleaned_data.get('year')
-    semester = serializer.cleaned_data.get('semester')
-    section = serializer.cleaned_data.get('section')
+    if client_branch and client_branch.lower() != branch.lower():
+        return JsonResponse({'status': 'error', 'error': 'Class branch mismatch with authorized access grant.'}, status=403)
+    if client_year and int(client_year) != int(year):
+        return JsonResponse({'status': 'error', 'error': 'Class year mismatch with authorized access grant.'}, status=403)
+    if client_sem and int(client_sem) != int(semester):
+        return JsonResponse({'status': 'error', 'error': 'Class semester mismatch with authorized access grant.'}, status=403)
+    if client_sec and int(client_sec) != int(section):
+        return JsonResponse({'status': 'error', 'error': 'Class section mismatch with authorized access grant.'}, status=403)
 
-    # Use fingerprint as ID if provided, otherwise fallback to random (random is less secure for session persistence)
+    # Use fingerprint as ID if provided, otherwise fallback to random
     student_id = fingerprint if fingerprint else 'STU-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
-    # Generate JWT with class info
+    # Generate JWT with class info and grant_token
     token = generate_jwt({
         'enrollment': student_id,
         'session': session,
@@ -158,7 +180,8 @@ def login(request):
         'year': year,
         'semester': semester,
         'section': section,
-        'name': f"Guest Student ({student_id[:8]})"
+        'name': f"Guest Student ({student_id[:8]})",
+        'grant_token': grant.grant_token
     }, user_type='student')
 
     return JsonResponse({
@@ -402,10 +425,28 @@ def submit_feedback(request):
         }, status=409)
 
     # -------------------------------------
-    # 8. Save feedback atomically
+    # 8. Save feedback atomically & check grant limits
     # -------------------------------------
+    grant_token = request.jwt_payload.get("grant_token")
     try:
         with transaction.atomic():
+            if grant_token:
+                grant = AccessGrant.objects.select_for_update().filter(grant_token=grant_token).first()
+                if not grant or not grant.is_active:
+                    return JsonResponse({
+                        "status": "error",
+                        "error": "Access grant is invalid or has been deactivated."
+                    }, status=403)
+                if grant.is_expired():
+                    return JsonResponse({
+                        "status": "error",
+                        "error": "Feedback link has expired. Please request a new link."
+                    }, status=403)
+                if grant.is_limit_reached():
+                    return JsonResponse({
+                        "status": "error",
+                        "error": "Maximum feedback responses reached for this link."
+                    }, status=403)
 
             feedback = Feedback_Response(
                 AllocationID=alloc,
@@ -429,6 +470,10 @@ def submit_feedback(request):
                 EnrollmentNo=enrollment_no,
                 AllocationID=alloc
             )
+
+            if grant_token and grant:
+                grant.response_count = F('response_count') + 1
+                grant.save(update_fields=['response_count'])
 
     except Exception as e:
         return JsonResponse({
@@ -583,7 +628,9 @@ def admin_list_tables(request):
             table_name = model._meta.db_table
             model_name = model.__name__
             
-            # HODs cannot see the User table
+            # Exclude internal AccessGrant and HOD-restricted StaffUser table
+            if model_name == 'AccessGrant':
+                continue
             if user_role == 'hod' and model_name == 'StaffUser':
                 continue
             
@@ -1463,34 +1510,199 @@ def admin_date_ranges(request):
 @csrf_exempt
 @require_POST
 @jwt_hod_or_admin_required
-def admin_generate_signature(request):
-    """Generate a cryptographic signature for a class link to prevent tampering"""
+def admin_generate_access_grant(request):
+    """Generate a persistent, secure AccessGrant and return an opaque signed link token"""
     try:
         payload = json.loads(request.body)
-        session = str(payload.get('session', ''))
-        branch = payload.get('branch', '')
-        year = str(payload.get('year', ''))
-        semester = str(payload.get('semester', ''))
-        section = str(payload.get('section', ''))
+        session = str(payload.get('session', '')).strip()
+        branch = str(payload.get('branch', '')).strip()
+        year = payload.get('year')
+        semester = payload.get('semester')
+        section = payload.get('section')
+        max_responses = int(payload.get('max_responses', 100))
+        duration_minutes = int(payload.get('duration_minutes', 15))
 
-        if not all([session, branch, year, semester, section]):
-            return JsonResponse({"status": "error", "error": "Missing class parameters"}, status=400)
+        if not all([session, branch, year is not None, semester is not None, section is not None]):
+            return JsonResponse({"status": "error", "error": "Missing required class parameters"}, status=400)
 
-        # Create a stable string to sign
-        data_to_sign = f"{session}|{branch}|{year}|{semester}|{section}"
-        
-        signer = Signer(sep=':')
-        signed_value = signer.sign(data_to_sign)
-        
-        # Extract the signature part (the part after the separator)
-        signature = signed_value.split(':')[-1]
+        # Enforce HOD branch permission
+        if getattr(request.user, 'role', '') == 'hod':
+            allowed_branches = getattr(request.user, 'branches', []) or []
+            if branch not in allowed_branches:
+                return JsonResponse({"status": "error", "error": f"Unauthorized branch '{branch}' for this HOD account."}, status=403)
+
+        grant = AccessGrant.objects.create(
+            session=session,
+            branch=branch,
+            year=int(year),
+            semester=int(semester),
+            section=int(section),
+            created_by=request.user,
+            expires_at=timezone.now() + timedelta(minutes=duration_minutes),
+            max_responses=max_responses
+        )
+
+        opaque_access = create_opaque_access_token(grant)
 
         return JsonResponse({
             "status": "ok",
-            "signature": signature
+            "access": opaque_access,
+            "grant_token": grant.grant_token,
+            "expires_at": grant.expires_at.isoformat(),
+            "max_responses": grant.max_responses,
+            "session": grant.session,
+            "branch": grant.branch,
+            "year": grant.year,
+            "semester": grant.semester,
+            "section": grant.section
         })
     except Exception as e:
         return JsonResponse({"status": "error", "error": str(e)}, status=500)
+
+
+@require_GET
+def resolve_feedback_access(request):
+    """
+    Public resolver endpoint for students with an opaque access token.
+    Validates token signature, DB record, expiration, and active status.
+    """
+    access_token_str = request.GET.get('access')
+    grant, err_msg, status_code = resolve_grant_from_access_token(access_token_str)
+    if not grant:
+        return JsonResponse({"status": "error", "error": err_msg}, status=status_code)
+
+    return JsonResponse({
+        "status": "ok",
+        "session": grant.session,
+        "branch": grant.branch,
+        "year": grant.year,
+        "semester": grant.semester,
+        "section": grant.section,
+        "expires_at": grant.expires_at.isoformat(),
+        "max_responses": grant.max_responses,
+        "response_count": grant.response_count
+    })
+
+
+@require_GET
+@jwt_hod_or_admin_required
+def admin_list_access_grants(request):
+    """List recent Access Grants for Admin/HOD management (purges and deletes expired & revoked grants from DB)"""
+    try:
+        user_role = getattr(request.user, 'role', 'admin')
+        user_branches = getattr(request.user, 'branches', []) or []
+        
+        # Permanently delete all expired and deactivated grant records from the database table
+        now = timezone.now()
+        AccessGrant.objects.filter(Q(expires_at__isnull=False, expires_at__lte=now) | Q(is_active=False)).delete()
+        
+        queryset = AccessGrant.objects.filter(is_active=True).select_related('created_by').order_by('-created_at')
+        if user_role == 'hod':
+            queryset = queryset.filter(branch__in=user_branches)
+        
+        grants = []
+        for g in queryset[:60]:
+            grants.append({
+                'id': g.id,
+                'grant_token': g.grant_token,
+                'access': create_opaque_access_token(g),
+                'session': g.session,
+                'branch': g.branch,
+                'year': g.year,
+                'semester': g.semester,
+                'section': g.section,
+                'created_at': g.created_at.isoformat() if g.created_at else None,
+                'expires_at': g.expires_at.isoformat() if g.expires_at else None,
+                'is_active': True,
+                'is_expired': False,
+                'max_responses': g.max_responses,
+                'response_count': g.response_count,
+                'created_by': g.created_by.username if g.created_by else 'Admin'
+            })
+            
+        return JsonResponse({
+            'status': 'ok',
+            'grants': grants
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+@jwt_hod_or_admin_required
+def admin_toggle_access_grant(request, grant_id):
+    """Revoke and delete an Access Grant from table"""
+    try:
+        user_role = getattr(request.user, 'role', 'admin')
+        user_branches = getattr(request.user, 'branches', []) or []
+        
+        try:
+            grant = AccessGrant.objects.get(pk=grant_id)
+        except AccessGrant.DoesNotExist:
+            return JsonResponse({'status': 'error', 'error': 'Access grant not found'}, status=404)
+            
+        if user_role == 'hod' and grant.branch not in user_branches:
+            return JsonResponse({'status': 'error', 'error': 'Unauthorized branch for this grant'}, status=403)
+            
+        payload = {}
+        if request.body:
+            try:
+                payload = json.loads(request.body)
+            except:
+                pass
+                
+        # If explicitly revoking or toggling off active grant, delete it directly
+        if payload.get('is_active') is False or grant.is_active:
+            grant.delete()
+            return JsonResponse({
+                'status': 'ok',
+                'message': 'Access revoked and record deleted from table',
+                'deleted': True,
+                'is_active': False
+            })
+            
+        grant.is_active = True
+        grant.save(update_fields=['is_active'])
+        
+        return JsonResponse({
+            'status': 'ok',
+            'message': 'Grant status updated',
+            'is_active': True
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+@jwt_hod_or_admin_required
+def admin_delete_access_grant(request, grant_id):
+    """Delete an Access Grant record"""
+    try:
+        user_role = getattr(request.user, 'role', 'admin')
+        user_branches = getattr(request.user, 'branches', []) or []
+        
+        try:
+            grant = AccessGrant.objects.get(pk=grant_id)
+        except AccessGrant.DoesNotExist:
+            return JsonResponse({'status': 'error', 'error': 'Access grant not found'}, status=404)
+            
+        if user_role == 'hod' and grant.branch not in user_branches:
+            return JsonResponse({'status': 'error', 'error': 'Unauthorized branch for this grant'}, status=403)
+            
+        grant.delete()
+        return JsonResponse({'status': 'ok', 'message': 'Access grant deleted successfully'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+@jwt_hod_or_admin_required
+def admin_generate_signature(request):
+    """Legacy generator: redirected to admin_generate_access_grant for full backward compatibility"""
+    return admin_generate_access_grant(request)
 
 
 @require_POST

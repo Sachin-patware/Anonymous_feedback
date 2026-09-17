@@ -4,6 +4,7 @@ from .academic_subject import Academic_Subject
 from .academic_allocation import Academic_Allocation
 from .feedback_response import Feedback_Response
 from .feedback_submissionlog import Feedback_SubmissionLog
+from .access_grant import AccessGrant
 
 __all__ = [
     "StaffUser",
@@ -12,4 +13,5 @@ __all__ = [
     "Academic_Allocation",
     "Feedback_Response",
     "Feedback_SubmissionLog",
+    "AccessGrant",
 ]
