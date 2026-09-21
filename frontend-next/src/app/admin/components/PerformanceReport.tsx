@@ -88,7 +88,15 @@ export default function PerformanceReport() {
     const [customEnd, setCustomEnd] = useState<string>('');
     const [appliedStart, setAppliedStart] = useState<string | null>(null);
     const [appliedEnd, setAppliedEnd] = useState<string | null>(null);
-    const [allowedRanges, setAllowedRanges] = useState<string[]>(['last_6_months']);
+    const [allowedRanges, setAllowedRanges] = useState<string[]>([
+        'last_6_months',
+        'last_1_year',
+        'last_2_years',
+        'last_3_years',
+        'last_5_years',
+        'all_time',
+        'custom'
+    ]);
 
     useEffect(() => {
         fetchReports(dateRange, customStart, customEnd);

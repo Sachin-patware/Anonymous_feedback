@@ -22,6 +22,7 @@ urlpatterns = [
     path("dashboard-admin/access-token/", feedback_views.admin_get_token, name='admin_get_token'),
     path("dashboard-admin/access-token/update/", feedback_views.admin_update_token, name='admin_update_token'),
     path("dashboard-admin/date-ranges/", feedback_views.admin_date_ranges, name='admin_date_ranges'),
+    path("dashboard-admin/reports/teacher-performance/", feedback_views.admin_teacher_report, name='admin_teacher_report'),
     path("dashboard-admin/access-grants/", feedback_views.admin_list_access_grants, name='admin_list_access_grants'),
     path("dashboard-admin/access-grants/<int:grant_id>/toggle/", feedback_views.admin_toggle_access_grant, name='admin_toggle_access_grant'),
     path("dashboard-admin/access-grants/<int:grant_id>/delete/", feedback_views.admin_delete_access_grant, name='admin_delete_access_grant'),

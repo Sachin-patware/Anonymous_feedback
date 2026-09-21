@@ -45,5 +45,29 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
         headers,
     });
 
+    // Safely intercept .json() so HTML error pages (404/500/HTML) don't crash with JSON parse syntax error
+    const rawJson = response.json.bind(response);
+    response.json = async () => {
+        try {
+            const text = await response.text();
+            if (!text || !text.trim()) {
+                return { status: response.ok ? 'ok' : 'error', error: response.ok ? undefined : `HTTP ${response.status}` };
+            }
+            try {
+                return JSON.parse(text);
+            } catch {
+                return {
+                    status: 'error',
+                    error: `Server returned non-JSON response (${response.status} ${response.statusText || 'Error'}). Please check backend connection.`
+                };
+            }
+        } catch (e: any) {
+            return {
+                status: 'error',
+                error: e?.message || 'Failed to read response body.'
+            };
+        }
+    };
+
     return response;
 }
