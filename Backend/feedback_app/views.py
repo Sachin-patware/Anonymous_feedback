@@ -103,22 +103,23 @@ def apply_role_filters(user, queryset, model):
         if model_name == 'StaffUser':
             return queryset.none()
             
-        if model_name == 'Academic_Subject':
-            return queryset.filter(Branch__in=user.branches)
+        if model_name == 'Faculty_Teacher':
+            return queryset
+            
+        elif model_name == 'Academic_Subject':
+            from django.db.models import Q
+            if not user.branches:
+                return queryset.none()
+            q = Q()
+            for b in user.branches:
+                q |= Q(branches__contains=[b])
+            return queryset.filter(q)
         
         elif model_name == 'Academic_Allocation':
             return queryset.filter(TargetBranch__in=user.branches)
             
         elif model_name in ['Feedback_Response', 'Feedback_SubmissionLog']:
             return queryset.filter(AllocationID__TargetBranch__in=user.branches)
-            
-        elif model_name == 'Faculty_Teacher':
-            
-            from .models import Academic_Allocation
-            teacher_ids = Academic_Allocation.objects.filter(
-                TargetBranch__in=user.branches
-            ).values_list('TeacherID', flat=True).distinct()
-            return queryset.filter(TeacherID__in=teacher_ids)
             
     return queryset
 
@@ -315,7 +316,7 @@ def my_teachers(request):
                 "subject_code": subj.SubjectCode,
                 "subject_name": subj.SubjectName,
                 "semester": subj.Semester,
-                "branch": subj.Branch,
+                "branches": subj.branches,
                 "teachers": []
             }
 
@@ -380,7 +381,6 @@ def submit_feedback(request):
 
     allocation_id = form.cleaned_data.get("allocation_id")
     subject_code = form.cleaned_data.get("subject_code")
-    comments = form.cleaned_data.get("comments")
 
     ratings = {f"q{i}": form.cleaned_data.get(f"q{i}") for i in range(1, 11)}
 
@@ -480,8 +480,7 @@ def submit_feedback(request):
                 Q7_Rating=ratings["q7"],
                 Q8_Rating=ratings["q8"],
                 Q9_Rating=ratings["q9"],
-                Q10_Rating=ratings["q10"],
-                Comments=comments or None
+                Q10_Rating=ratings["q10"]
             )
             feedback.full_clean()
             feedback.save()
@@ -550,8 +549,7 @@ def my_feedbacks(request):
                 "q8": resp.Q8_Rating,
                 "q9": resp.Q9_Rating,
                 "q10": resp.Q10_Rating,
-            },
-            "comments": resp.Comments
+            }
         })
 
     return JsonResponse({
@@ -1021,13 +1019,23 @@ def admin_add_row(request, table_name):
              
              # Validate branch if model has one
              branch_key = None
-             if model_name == 'Academic_Subject': branch_key = 'Branch'
-             elif model_name == 'Academic_Allocation': branch_key = 'TargetBranch'
+             if model_name == 'Academic_Allocation': branch_key = 'TargetBranch'
              
              if branch_key:
                  branch_val = payload.get(branch_key)
                  if branch_val not in request.user.branches:
                      return JsonResponse({"status": "error", "error": f"You do not have permission for branch {branch_val}"}, status=403)
+                     
+             if model_name == 'Academic_Subject':
+                 new_branches = payload.get('branches', [])
+                 if isinstance(new_branches, str):
+                     try:
+                         new_branches = json.loads(new_branches)
+                     except:
+                         new_branches = []
+                 for b in new_branches:
+                     if b not in request.user.branches:
+                         return JsonResponse({"status": "error", "error": f"You do not have permission to add subject for branch {b}"}, status=403)
             
         # Map models to serializers for better validation
         serializer_map = {
@@ -1136,8 +1144,7 @@ def admin_update_row(request, table_name, row_id):
             
             # Branch validation for update payload
             branch_key = None
-            if model.__name__ == 'Academic_Subject': branch_key = 'Branch'
-            elif model.__name__ == 'Academic_Allocation': branch_key = 'TargetBranch'
+            if model.__name__ == 'Academic_Allocation': branch_key = 'TargetBranch'
             
             if branch_key:
                 branch_val = payload.get(branch_key)
@@ -1165,6 +1172,29 @@ def admin_update_row(request, table_name, row_id):
                 "status": "error",
                 "error": f"row with id {row_id} not found or access denied"
             }, status=404)
+
+        if request.user.role == 'hod' and model.__name__ == 'Academic_Subject' and 'branches' in payload:
+            new_branches = payload.get('branches', [])
+            if isinstance(new_branches, str):
+                try:
+                    new_branches = json.loads(new_branches)
+                except:
+                    new_branches = []
+            
+            old_branches = obj.branches if isinstance(obj.branches, list) else []
+            old_set = set(old_branches)
+            new_set = set(new_branches)
+            
+            added = new_set - old_set
+            removed = old_set - new_set
+            
+            for b in added:
+                if b not in request.user.branches:
+                    return JsonResponse({"status": "error", "error": f"You do not have permission to add branch {b}"}, status=403)
+                    
+            for b in removed:
+                if b not in request.user.branches:
+                    return JsonResponse({"status": "error", "error": f"You do not have permission to remove branch {b}"}, status=403)
 
         if model.__name__ == 'StaffUser' and obj.pk == request.user.pk:
             if 'is_active' in payload:
@@ -1263,6 +1293,12 @@ def admin_delete_row(request, table_name, row_id):
             # Re-apply role filters to ensure they can't delete what they can't see
             visible_qs = apply_role_filters(request.user, model.objects.all(), model)
             obj = visible_qs.get(pk=row_id)
+
+            if request.user.role == 'hod' and model.__name__ == 'Academic_Subject':
+                old_branches = obj.branches if isinstance(obj.branches, list) else []
+                for b in old_branches:
+                    if b not in request.user.branches:
+                        return JsonResponse({"status": "error", "error": f"You do not have permission to delete a subject used by branch {b}"}, status=403)
 
             if model.__name__ == 'StaffUser' and obj.pk == request.user.pk:
                 return JsonResponse({"status": "error", "error": "You cannot delete your own account."}, status=400)

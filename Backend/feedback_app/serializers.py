@@ -75,16 +75,10 @@ class FeedbackSerializer(forms.Form):
     q10 = forms.IntegerField(min_value=1, max_value=5, required=True,
         error_messages={"required": "q10 is required", "min_value": "rating must be 1–5", "max_value": "rating must be 1–5"})
 
-    comments = forms.CharField(required=False, max_length=20)
-
     # --- Cleaners ---
     def clean_subject_code(self):
         value = self.cleaned_data.get("subject_code")
         return value.upper().strip() if value else value
-
-    def clean_comments(self):
-        value = self.cleaned_data.get("comments")
-        return value.strip() if value else value
 
     def clean(self):
         return super().clean()
@@ -105,11 +99,14 @@ class AcademicSubjectSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Semester must be between 1 and 8.")
         return value
 
-    def validate_Branch(self, value):
+    def validate_branches(self, value):
         valid_branches = ['CSE', 'CSE(RL)', 'IT', 'CSE(DS)', 'CSE(CY)', 'CSIT', 'CSE(AIML)', 'ME', 'CE', 'EC', 'EC-ACT', 'EC-VLSI']
-        if value.upper() not in valid_branches:
-            raise serializers.ValidationError(f"Invalid branch. Must be one of: {', '.join(valid_branches)}")
-        return value.upper()
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Branches must be a list.")
+        for branch in value:
+            if branch.upper() not in valid_branches:
+                raise serializers.ValidationError(f"Invalid branch: {branch}. Must be one of: {', '.join(valid_branches)}")
+        return [b.upper() for b in value]
 
 
 class FacultyTeacherSerializer(serializers.ModelSerializer):

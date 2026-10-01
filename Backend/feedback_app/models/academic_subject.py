@@ -9,7 +9,7 @@ class Academic_Subject(models.Model):
     )
     SubjectName = models.CharField(max_length=255)
     Semester = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
-    Branch = models.CharField(max_length=20)
+    branches = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = "academic_subject"

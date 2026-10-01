@@ -244,12 +244,16 @@ const ForeignKeySearchSelect = ({
     onChange,
     targetTable,
     placeholder,
+    targetBranch,
+    targetSemester,
 }: {
     field: string;
     value: string;
     onChange: (val: string) => void;
     targetTable: 'faculty_teacher' | 'academic_subject';
     placeholder?: string;
+    targetBranch?: string;
+    targetSemester?: string | number;
 }) => {
     const isTeacher = targetTable === 'faculty_teacher';
     const [query, setQuery] = useState('');
@@ -369,47 +373,61 @@ const ForeignKeySearchSelect = ({
     // ── When a value is selected ──────────────────────────────────────────
     if (value) {
         return (
-            <div className="relative group">
-                <div className="w-full flex items-center justify-between p-2.5 px-3.5 bg-gradient-to-r from-indigo-50/70 to-slate-50 border border-indigo-200/80 rounded-xl shadow-sm transition-all hover:border-indigo-300">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                        <div className={cn(
-                            "p-2 rounded-lg flex-shrink-0",
-                            isTeacher ? "bg-indigo-100 text-indigo-700" : "bg-violet-100 text-violet-700"
-                        )}>
-                            {isTeacher ? <User size={18} /> : <BookText size={18} />}
-                        </div>
-                        <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                                <span className={cn(
-                                    "font-mono font-black text-xs px-2 py-0.5 rounded-md",
-                                    isTeacher ? "bg-indigo-600 text-white" : "bg-violet-600 text-white"
-                                )}>
-                                    {value}
-                                </span>
-                                {selectedDetail && (
-                                    <span className="text-xs font-bold text-slate-800 truncate">
-                                        {isTeacher ? selectedDetail.FullName : selectedDetail.SubjectName}
+            <div className="space-y-1.5">
+                <div className="relative group">
+                    <div className="w-full flex items-center justify-between p-2.5 px-3.5 bg-gradient-to-r from-indigo-50/70 to-slate-50 border border-indigo-200/80 rounded-xl shadow-sm transition-all hover:border-indigo-300">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                            <div className={cn(
+                                "p-2 rounded-lg flex-shrink-0",
+                                isTeacher ? "bg-indigo-100 text-indigo-700" : "bg-violet-100 text-violet-700"
+                            )}>
+                                {isTeacher ? <User size={18} /> : <BookText size={18} />}
+                            </div>
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className={cn(
+                                        "font-mono font-black text-xs px-2 py-0.5 rounded-md",
+                                        isTeacher ? "bg-indigo-600 text-white" : "bg-violet-600 text-white"
+                                    )}>
+                                        {value}
                                     </span>
+                                    {selectedDetail && (
+                                        <span className="text-xs font-bold text-slate-800 truncate">
+                                            {isTeacher ? selectedDetail.FullName : selectedDetail.SubjectName}
+                                        </span>
+                                    )}
+                                </div>
+                                {selectedDetail && (
+                                    <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                                        {isTeacher
+                                            ? (selectedDetail.Designation || 'Faculty')
+                                            : `${selectedDetail.branches && Array.isArray(selectedDetail.branches) ? selectedDetail.branches.join(', ') : ''}${selectedDetail.Semester ? ` • Sem ${selectedDetail.Semester}` : ''}`}
+                                    </p>
                                 )}
                             </div>
-                            {selectedDetail && (
-                                <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
-                                    {isTeacher
-                                        ? (selectedDetail.Designation || 'Faculty')
-                                        : `${selectedDetail.Branch || ''}${selectedDetail.Semester ? ` • Sem ${selectedDetail.Semester}` : ''}`}
-                                </p>
-                            )}
                         </div>
+                        <button
+                            type="button"
+                            onClick={handleClear}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all ml-2 flex-shrink-0"
+                            title="Change selection"
+                        >
+                            <X size={16} />
+                        </button>
                     </div>
-                    <button
-                        type="button"
-                        onClick={handleClear}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all ml-2 flex-shrink-0"
-                        title="Change selection"
-                    >
-                        <X size={16} />
-                    </button>
                 </div>
+                {!isTeacher && selectedDetail && targetBranch ? (
+                    Array.isArray(selectedDetail.branches) && !selectedDetail.branches.includes(targetBranch) ? (
+                        <p className="text-xs font-semibold text-rose-500 flex items-center gap-1 mt-1.5 px-1">
+                            <span>⚠</span> Warning: Subject branches ({selectedDetail.branches.join(', ')}) do not match allocation Target Branch ({targetBranch}).
+                        </p>
+                    ) : null
+                ) : null}
+                {!isTeacher && selectedDetail && targetSemester && selectedDetail.Semester && String(selectedDetail.Semester) !== String(targetSemester) && (
+                    <p className="text-xs font-semibold text-rose-500 flex items-center gap-1 mt-1.5 px-1">
+                        <span>⚠</span> Warning: Subject Semester ({selectedDetail.Semester}) does not match allocation Target Semester ({targetSemester}).
+                    </p>
+                )}
             </div>
         );
     }
@@ -460,7 +478,7 @@ const ForeignKeySearchSelect = ({
                             const title = isTeacher ? item.FullName : item.SubjectName;
                             const subtitle = isTeacher
                                 ? item.Designation
-                                : `${item.Branch || ''}${item.Semester ? ` • Semester ${item.Semester}` : ''}`;
+                                : `${item.branches && Array.isArray(item.branches) ? item.branches.join(', ') : ''}${item.Semester ? ` • Sem ${item.Semester}` : ''}`;
 
                             return (
                                 <button
@@ -567,6 +585,8 @@ const RenderInputInner = ({
                 onChange={onChange}
                 targetTable="academic_subject"
                 placeholder="Search Subject Code or Name..."
+                targetBranch={allData?.TargetBranch}
+                targetSemester={allData?.Target_Semester || allData?.TargetSemester || allData?.Semester || allData?.semester}
             />
         );
     }
