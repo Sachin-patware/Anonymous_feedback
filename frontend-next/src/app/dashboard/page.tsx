@@ -431,7 +431,7 @@ export default function DashboardPage() {
                             {/* Left Column: Fixed Questions */}
                             <div className="w-[340px] flex-shrink-0 bg-slate-50/50 border-r border-gray-100 flex flex-col">
                                 {/* Fixed Sidebar Header Spacer */}
-                                <div className="h-[180px] p-8 flex flex-col justify-end border-b border-gray-100/50">
+                                <div className="h-[216px] p-8 flex flex-col justify-end border-b border-gray-100/50">
                                     <h4 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-1">Feedback Criteria</h4>
                                     <p className="text-[13px] text-gray-500 font-medium leading-relaxed">Please rate each teacher based on the parameters listed below.</p>
                                 </div>
@@ -498,7 +498,7 @@ export default function DashboardPage() {
                                             <div key={teacher.allocation_id} className="flex-shrink-0 w-[300px] border-r border-gray-100 last:border-r-0 flex flex-col group">
                                                 {/* Teacher Card Header (Sticky part for this column) */}
                                                 <div className={cn(
-                                                    "h-[180px] p-6 flex flex-col items-center text-center transition-colors border-b border-gray-100",
+                                                    "h-[216px] p-6 flex flex-col items-center text-center transition-colors border-b border-gray-100",
                                                     isComplete ? "bg-blue-50/30" : "bg-white group-hover:bg-slate-50/50"
                                                 )}>
                                                     <div className={cn(
@@ -509,8 +509,9 @@ export default function DashboardPage() {
                                                     )}>
                                                         {teacher.teacher_name.charAt(0)}
                                                     </div>
-                                                    <h3 className="text-[15px] font-bold text-gray-900 leading-tight line-clamp-1 w-full">{teacher.teacher_name}</h3>
-                                                    <p className="text-blue-600 font-semibold text-[12px] mt-1 line-clamp-1 w-full px-2">{teacher.subject_name}</p>
+                                                    <h3 className="text-[15px] font-bold text-gray-900 leading-snug line-clamp-1 w-full shrink-0 px-2">{teacher.teacher_name}</h3>
+                                                    <p className="text-blue-600 font-semibold text-[12px] mt-1 leading-snug line-clamp-1 w-full px-2 shrink-0" title={teacher.subject_name}>{teacher.subject_name}</p>
+                                                    <p className="text-slate-500 font-bold text-[10px] tracking-wider uppercase mt-1 px-2 py-0.5 rounded-md bg-slate-100 shrink-0">{teacher.subject_code}</p>
                                                     <div className="mt-3 w-full max-w-[120px]">
                                                         <div className="flex items-center justify-between mb-1">
                                                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{progress}/10</span>
