@@ -543,7 +543,8 @@ const RenderInputInner = ({
     isPk,
     tableData,
     allData = {},
-    disabled = false
+    disabled = false,
+    isCreate = false
 }: {
     field: string,
     value: any,
@@ -551,7 +552,8 @@ const RenderInputInner = ({
     isPk: boolean,
     tableData: TableData | null,
     allData?: any,
-    disabled?: boolean
+    disabled?: boolean,
+    isCreate?: boolean
 }) => {
     const [showPassword, setShowPassword] = useState(false);
     if (!tableData) return null;
@@ -748,7 +750,7 @@ const RenderInputInner = ({
                     onChange(meta.type === 'number' ? (val === '' ? '' : Number(val)) : val);
                 }}
                 disabled={isPk && (meta.is_auto ?? false)}
-                placeholder={isPasswordField ? 'Enter new password to change' : isPk && (meta.is_auto ?? false) ? '(Auto)' : meta.type === 'date' ? "YYYY-MM-DD" : `Enter ${formatLabel(field)}...`}
+                placeholder={isPasswordField ? (isCreate ? 'Create password' : 'Enter new password to change') : isPk && (meta.is_auto ?? false) ? '(Auto)' : meta.type === 'date' ? "YYYY-MM-DD" : `Enter ${formatLabel(field)}...`}
                 className="w-full pl-10 pr-12 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 disabled:bg-slate-50 disabled:text-slate-400 transition-all font-semibold text-sm placeholder:text-slate-400 placeholder:font-medium shadow-sm hover:border-slate-300"
             />
             {isPasswordField && (
@@ -825,6 +827,12 @@ export default function AdminDashboard() {
 
     const [editingRow, setEditingRow] = useState<any | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<any | null>(null);
+    // Second confirmation step for sensitive (feedback) tables
+    const [deleteFinalConfirm, setDeleteFinalConfirm] = useState(false);
+    const isReadOnlyTable = READ_ONLY_TABLES.some(t => t.toLowerCase() === selectedTable.toLowerCase());
+    // Admin (not HOD) can delete feedback_response / feedback_submissionlog records
+    const canAdminDeleteReadOnly = isReadOnlyTable && userRole === 'admin';
+    const showActionsColumn = !isReadOnlyTable || canAdminDeleteReadOnly;
     const [addModalOpen, setAddModalOpen] = useState(false);
     const [newRowData, setNewRowData] = useState<any>({});
     const [filterTables, setFilterTables] = useState('');
@@ -1302,6 +1310,7 @@ export default function AdminDashboard() {
             if (data.status === 'ok') {
                 showToast('Row deleted successfully', 'success');
                 setDeleteConfirm(null);
+                setDeleteFinalConfirm(false);
                 fetchTableData(currentPage);
             } else {
                 showToast(data.error || 'Failed to delete row', 'error');
@@ -1635,7 +1644,7 @@ export default function AdminDashboard() {
                                                 <div className="flex items-center justify-between text-xs">
                                                     <span className="font-bold text-slate-600 flex items-center gap-1.5">
                                                         <Users size={13} className="text-indigo-500" />
-                                                        Submissions: <strong className="text-slate-900">{grant.response_count}</strong> / <span className="text-slate-500">{grant.max_responses}</span>
+                                                        Students: <strong className="text-slate-900">{grant.response_count}</strong> / <span className="text-slate-500">{grant.max_responses}</span>
                                                     </span>
                                                     <span className="font-bold text-indigo-600 text-[11px]">{percent}%</span>
                                                 </div>
@@ -1803,7 +1812,7 @@ export default function AdminDashboard() {
                                 <div className="flex items-center justify-between">
                                     <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                                         <Users size={14} className="text-indigo-600" />
-                                        Max Feedback Responses
+                                        Max Students
                                     </span>
                                     <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
                                         {parseInt(genMaxResponses) > 0 ? `${genMaxResponses} Students` : 'Enter Limit'}
@@ -1879,7 +1888,7 @@ export default function AdminDashboard() {
                                         ))}
                                     </div>
                                 </div>
-                                <p className="text-[10px] text-slate-400 font-medium">Enter any custom number or use +/- counter. Submissions stop automatically when limit is reached.</p>
+                                <p className="text-[10px] text-slate-400 font-medium">Enter any custom number or use +/- counter. New students are blocked once the limit is reached; students who already started can finish all subjects.</p>
                             </div>
 
                             {/* Validity Duration UI */}
@@ -2015,7 +2024,7 @@ export default function AdminDashboard() {
                                     <div className="text-center space-y-0.5">
                                         <p className="text-xs font-extrabold text-slate-800">{genSession}</p>
                                         <p className="text-[11px] text-slate-500 font-medium">
-                                            {genBranch} · Year {genYear} · Sem {genSem} · Sec {genSection} · Max {genMaxResponses} Submissions
+                                            {genBranch} · Year {genYear} · Sem {genSem} · Sec {genSection} · Max {genMaxResponses} Students
                                         </p>
                                     </div>
 
@@ -2086,7 +2095,7 @@ export default function AdminDashboard() {
 
                                 <div className="text-center bg-slate-50 p-2.5 rounded-xl w-full text-xs font-medium text-slate-600 space-y-1">
                                     <p className="font-bold text-slate-800">{selectedGrantForQr.session}</p>
-                                    <p className="text-[11px] text-slate-500">Submissions: {selectedGrantForQr.response_count} / {selectedGrantForQr.max_responses}</p>
+                                    <p className="text-[11px] text-slate-500">Students: {selectedGrantForQr.response_count} / {selectedGrantForQr.max_responses}</p>
                                     <div className="text-[10px] text-slate-400 flex flex-col items-center gap-0.5 pt-1 border-t border-slate-200/60">
                                         <span>Created: {formatDateTime(selectedGrantForQr.created_at)}</span>
                                         <span className={selectedGrantForQr.is_expired ? "text-amber-600 font-semibold" : "text-emerald-600 font-semibold"}>
@@ -2367,7 +2376,7 @@ export default function AdminDashboard() {
                                                                 </div>
                                                             </th>
                                                         ))}
-                                                        {!READ_ONLY_TABLES.some(t => t.toLowerCase() === selectedTable.toLowerCase()) && (
+                                                        {showActionsColumn && (
                                                             <th className="px-5 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sticky right-0 bg-gradient-to-l from-slate-100 to-slate-50 shadow-[-12px_0_20px_-8px_rgba(0,0,0,0.06)] z-20">
                                                                 Actions
                                                             </th>
@@ -2408,7 +2417,7 @@ export default function AdminDashboard() {
                                                                 </td>
                                                             );
                                                         })}
-                                                        {!READ_ONLY_TABLES.some(t => t.toLowerCase() === selectedTable.toLowerCase()) && (
+                                                        {showActionsColumn && (
                                                             <td className="px-2 py-2 bg-slate-50 sticky right-0 z-20"></td>
                                                         )}
                                                     </tr>
@@ -2532,12 +2541,26 @@ export default function AdminDashboard() {
                                                                         )}
                                                                     </div>
                                                                 )}
+                                                                {canAdminDeleteReadOnly && (
+                                                                    <div className="flex items-center justify-end gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setDeleteFinalConfirm(false);
+                                                                                setDeleteConfirm(row);
+                                                                            }}
+                                                                            className="p-1.5 sm:p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 bg-slate-100 md:bg-transparent transition-all"
+                                                                            title="Delete"
+                                                                        >
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
                                                             </td>
                                                         </tr>
                                                         ))
                                                     ) : !loading && (
                                                         <tr>
-                                                            <td colSpan={visibleFields.length + (!READ_ONLY_TABLES.some(t => t.toLowerCase() === selectedTable.toLowerCase()) ? 2 : 1)} className="px-5 py-10">
+                                                            <td colSpan={visibleFields.length + (showActionsColumn ? 2 : 1)} className="px-5 py-10">
                                                                 <div className="flex flex-col items-center justify-center h-64">
                                                                     <div className="h-16 w-16 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-4">
                                                                         <Database size={28} className="text-slate-300" />
@@ -2749,6 +2772,7 @@ export default function AdminDashboard() {
                                                 isPk={field === tableData.pk_field}
                                                 tableData={tableData}
                                                 allData={newRowData}
+                                                isCreate
                                             />
                                         </div>
                                     ))}
@@ -2784,22 +2808,36 @@ export default function AdminDashboard() {
                         <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
                             <AlertCircle className="text-red-600 h-8 w-8" />
                         </div>
-                        <h3 className="text-lg font-bold text-slate-900 mb-2">Delete Record?</h3>
+                        <h3 className="text-lg font-bold text-slate-900 mb-2">
+                            {isReadOnlyTable && deleteFinalConfirm ? 'Final Confirmation' : 'Delete Record?'}
+                        </h3>
                         <p className="text-slate-500 mb-6 text-sm">
-                            This action cannot be undone. This will permanently delete the selected record from the database.
+                            {isReadOnlyTable && deleteFinalConfirm
+                                ? 'This is sensitive feedback data. Are you absolutely sure you want to permanently delete this record? This cannot be undone.'
+                                : 'This action cannot be undone. This will permanently delete the selected record from the database.'}
                         </p>
                         <div className="flex gap-3">
                             <button
-                                onClick={() => setDeleteConfirm(null)}
+                                onClick={() => {
+                                    setDeleteConfirm(null);
+                                    setDeleteFinalConfirm(false);
+                                }}
                                 className="flex-1 py-2.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
-                                onClick={() => handleDelete(deleteConfirm)}
+                                onClick={() => {
+                                    // Sensitive feedback tables need a second confirmation
+                                    if (isReadOnlyTable && !deleteFinalConfirm) {
+                                        setDeleteFinalConfirm(true);
+                                        return;
+                                    }
+                                    handleDelete(deleteConfirm);
+                                }}
                                 className="flex-1 py-2.5 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
                             >
-                                Delete
+                                {isReadOnlyTable && deleteFinalConfirm ? 'Yes, Delete Permanently' : 'Delete'}
                             </button>
                         </div>
                     </motion.div>

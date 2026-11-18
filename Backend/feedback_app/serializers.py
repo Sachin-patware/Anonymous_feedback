@@ -155,7 +155,17 @@ class StaffUserSerializer(serializers.ModelSerializer):
             'password': {'write_only': True, 'required': False}
         }
 
- 
+    def create(self, validated_data):
+        # Hash the password on create (default ModelSerializer.create stores it as plain text,
+        # so login fails until the password is set again via edit).
+        password = validated_data.pop('password', None)
+        instance = StaffUser(**validated_data)
+        if password and password != "********":
+            instance.set_password(password)
+        else:
+            instance.set_unusable_password()
+        instance.save()
+        return instance
 
     def update(self, instance, validated_data):
         request = self.context.get('request')

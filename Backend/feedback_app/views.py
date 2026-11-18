@@ -449,6 +449,8 @@ def submit_feedback(request):
     # 8. Save feedback atomically & check grant limits
     # -------------------------------------
     grant_token = request.jwt_payload.get("grant_token")
+    grant = None
+    already_counted = False
     try:
         with transaction.atomic():
             if grant_token:
@@ -463,10 +465,24 @@ def submit_feedback(request):
                         "status": "error",
                         "error": "Feedback link has expired. Please request a new link."
                     }, status=403)
-                if grant.is_limit_reached():
+                # Count unique students per link (not per subject): a student is
+                # already counted if they submitted any subject of this link's
+                # class since the link was created.
+                already_counted = Feedback_SubmissionLog.objects.filter(
+                    EnrollmentNo=enrollment_no,
+                    Timestamp__gte=grant.created_at,
+                    AllocationID__AcademicSession=grant.session,
+                    AllocationID__TargetBranch__iexact=grant.branch,
+                    AllocationID__Target_Year=grant.year,
+                    AllocationID__Target_Semester=grant.semester,
+                    AllocationID__Target_Section=grant.section,
+                ).exists()
+
+                # Students who already started may finish remaining subjects
+                if not already_counted and grant.is_limit_reached():
                     return JsonResponse({
                         "status": "error",
-                        "error": "Maximum feedback responses reached for this link."
+                        "error": "Maximum students reached for this link."
                     }, status=403)
 
             feedback = Feedback_Response(
@@ -491,7 +507,7 @@ def submit_feedback(request):
                 AllocationID=alloc
             )
 
-            if grant_token and grant:
+            if grant_token and grant and not already_counted:
                 grant.response_count = F('response_count') + 1
                 grant.save(update_fields=['response_count'])
 
@@ -1262,9 +1278,9 @@ def admin_update_row(request, table_name, row_id):
 @jwt_hod_or_admin_required
 def admin_delete_row(request, table_name, row_id):
     """Delete a row from a table"""
-    # Restricted Tables
-    if table_name.lower() in ['feedback_response', 'feedback_submissionlog']:
-        return JsonResponse({"status": "error", "error": "This table is read-only"}, status=403)
+    # Restricted Tables: only admin may delete feedback records (HOD cannot)
+    if table_name.lower() in ['feedback_response', 'feedback_submissionlog'] and getattr(request.user, 'role', None) != 'admin':
+        return JsonResponse({"status": "error", "error": "Only admin can delete feedback records"}, status=403)
 
     try:
         # Find the model
